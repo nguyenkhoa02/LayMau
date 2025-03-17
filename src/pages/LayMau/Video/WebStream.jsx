@@ -33,6 +33,8 @@ const WebStream = ({ images, setImages, totalImages }) => {
           outputFaceBlendshapes: true,
           runningMode: 'VIDEO',
           numFaces: 1,
+          minDetectionConfidence: 0.8, // Tăng lên để chính xác hơn
+          minTrackingConfidence: 0.8,  // Giữ track chính xác hơn
         });
 
         setFaceLandmarker(landmarker);
@@ -152,9 +154,8 @@ const WebStream = ({ images, setImages, totalImages }) => {
       maxX = Math.max(maxX, point.x * canvasRef.current.width);
       maxY = Math.max(maxY, point.y * canvasRef.current.height);
     });
-
-    const XPadding = 50;
-    const YPadding = 10;
+    const XPadding = 20;
+    const YPadding = 20;  
     const cropX = Math.max(0, minX - XPadding);
     const cropY = Math.max(0, minY - YPadding);
     const cropWidth = Math.min(canvasRef.current.width - cropX, maxX - cropX + 2 * XPadding);
@@ -213,7 +214,8 @@ const WebStream = ({ images, setImages, totalImages }) => {
       img.src = base64;
     });
   };
-
+  const lastCaptureTime = useRef(0); // Lưu thời gian capture gần nhất
+  const captureDelay = 2000; // 2 giây delay
   const predictWebcam = useCallback(async () => {
     if (!videoRef.current || !canvasRef.current || !faceLandmarker || !isStreaming) return;
 
@@ -228,6 +230,7 @@ const WebStream = ({ images, setImages, totalImages }) => {
 
     try {
       const results = faceLandmarker.detectForVideo(video, startTimeMs);
+      
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       if (results.faceLandmarks) {
@@ -328,17 +331,19 @@ const WebStream = ({ images, setImages, totalImages }) => {
               const similarities = embs.map((existingEmb) =>
                 ImageEmbedder.cosineSimilarity(emb, existingEmb),
               );
-
-              // Find the maximum similarity (closest match)
+              const currentTime = performance.now();
               const rate = Math.max(...similarities);
-
-              if ((rate <= 0.9 && embs.length === 1) || (0.8 < rate && rate <= 0.9)) {
-                setEmbs((prev) => [...prev, emb]);
-                setImages((prev) => ({
-                  ...prev,
-                  [directionKey]: [...prev[directionKey], faceImage].slice(0, limit),
-                }));
-              }
+              // Find the maximum similarity (closest match)
+              if (currentTime - lastCaptureTime.current >= captureDelay) {
+                if ((rate <= 0.85 && embs.length === 1) || (0.5 < rate && rate <= 0.85)) {
+                  setEmbs((prev) => [...prev, emb]);
+                  setImages((prev) => ({
+                    ...prev,
+                    [directionKey]: [...prev[directionKey], faceImage].slice(0, limit),
+                  }));
+                }
+                lastCaptureTime.current = currentTime; // Luôn cập nhật sau mỗi lần kiểm tra
+              } 
             }
           }
 
@@ -353,7 +358,7 @@ const WebStream = ({ images, setImages, totalImages }) => {
       setError('Face detection failed. Try restarting the camera.');
     }
 
-    requestAnimationFrame(predictWebcam);
+    setTimeout(predictWebcam, 1000);
   }, [
     faceLandmarker,
     totalImages,
@@ -377,11 +382,11 @@ const WebStream = ({ images, setImages, totalImages }) => {
   }, [updateCanvasDimensions]);
 
   // Kích hoạt vòng lặp nhận diện khi `isStreaming` thay đổi
-  useEffect(() => {
-    if (isStreaming && faceLandmarker) {
-      predictWebcam();
-    }
-  }, [isStreaming, faceLandmarker, predictWebcam]);
+  // useEffect(() => {
+  //   if (isStreaming && faceLandmarker) {
+  //     predictWebcam();
+  //   }
+  // }, [isStreaming, faceLandmarker, predictWebcam]);
 
   // Thêm sự kiện để cập nhật kích thước khi video đã tải
   useEffect(() => {

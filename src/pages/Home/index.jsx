@@ -6,6 +6,7 @@ import { Routes, Route } from 'react-router-dom';
 import { Navbar } from '../../Components/';
 import FaceDetail from '../FaceDetail';
 import TrainModel from '../TrainModel';
+import LayMau from '../LayMau'
 
 const Home = () => {
   const nav = [
@@ -17,6 +18,7 @@ const Home = () => {
   return (
     <>
       <Navbar navigation={nav}></Navbar>
+      <LayMau></LayMau>
 
       <div className="mx-auto">
         <Routes>
