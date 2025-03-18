@@ -144,56 +144,37 @@ const WebStream = ({ images, setImages, totalImages }) => {
   }, []);
 
   const cropFace = (landmarks) => {
-    let minX = Infinity,
-      minY = Infinity,
-      maxX = -Infinity,
-      maxY = -Infinity;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     landmarks.forEach((point) => {
-      minX = Math.min(minX, point.x * canvasRef.current.width);
-      minY = Math.min(minY, point.y * canvasRef.current.height);
-      maxX = Math.max(maxX, point.x * canvasRef.current.width);
-      maxY = Math.max(maxY, point.y * canvasRef.current.height);
+      minX = Math.min(minX, point.x * videoRef.current.videoWidth);
+      minY = Math.min(minY, point.y * videoRef.current.videoHeight);
+      maxX = Math.max(maxX, point.x * videoRef.current.videoWidth);
+      maxY = Math.max(maxY, point.y * videoRef.current.videoHeight);
     });
+  
     const XPadding = 20;
-    const YPadding = 20;  
+    const YPadding = 20;
     const cropX = Math.max(0, minX - XPadding);
     const cropY = Math.max(0, minY - YPadding);
-    const cropWidth = Math.min(canvasRef.current.width - cropX, maxX - cropX + 2 * XPadding);
-    const cropHeight = Math.min(canvasRef.current.height - cropY, maxY - cropY + 2 * YPadding);
-
-    // ctx.drawImage(videoRef.current, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+    const cropWidth = Math.min(videoRef.current.videoWidth - cropX, maxX - cropX + 2 * XPadding);
+    const cropHeight = Math.min(videoRef.current.videoHeight - cropY, maxY - cropY + 2 * YPadding);
+  
+    // Tạo canvas tạm để crop ảnh từ video (không có filter)
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = cropWidth;
     tempCanvas.height = cropHeight;
     const tempCtx = tempCanvas.getContext('2d');
+  
+    // Lấy ảnh trực tiếp từ video (không qua filter)
     tempCtx.drawImage(
-      videoRef.current,
-      cropX,
-      cropY,
-      cropWidth,
-      cropHeight, // Vùng nguồn từ video
-      0,
-      0,
-      cropWidth,
-      cropHeight, // Vùng đích trên canvas tạm
+      videoRef.current, 
+      cropX, cropY, cropWidth, cropHeight, // Vùng cần crop
+      0, 0, cropWidth, cropHeight // Kích thước đầu ra
     );
-    tempCanvas
-      .getContext('2d')
-      .drawImage(canvasRef.current, 0, 0, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+  
     return tempCanvas.toDataURL('image/png');
-
-    // const resizedCanvas = document.createElement("canvas");
-    // resizedCanvas.width = 112;
-    // resizedCanvas.height = 112;
-    // const resizedCtx = resizedCanvas.getContext("2d");
-    // resizedCtx.imageSmoothingQuality = true
-    // resizedCtx.imageSmoothingQuality = "high"
-    //
-    // resizedCtx.drawImage(tempCanvas, 0, 0, 112, 112);
-    //
-    // return resizedCanvas.toDataURL("image/png");
   };
-
+  
   const base64ToImageData = (base64) => {
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -236,12 +217,32 @@ const WebStream = ({ images, setImages, totalImages }) => {
     try {
       const results = faceLandmarker.detectForVideo(video, startTimeMs);
   
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-  
-      // Draw the fixed bounding box
-      ctx.strokeStyle = '#00FF00';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(boxX, boxY, boxSize, boxSize);
+    // Kích thước và vị trí của hình tròn
+    const radius = 300;
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+
+    // Xóa canvas trước khi vẽ
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Vẽ lớp mờ xung quanh hình tròn
+    ctx.fillStyle = 'rgba(128, 128, 128, 0.6)'; // Màu xám với opacity 60%
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Tạo vùng trong suốt hình tròn
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalCompositeOperation = 'source-over'; // Đặt lại chế độ vẽ bình thường
+
+    // Vẽ viền hình tròn (màu xanh lá cây)
+    ctx.strokeStyle = '#00FF00';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    ctx.stroke();
+
   
       if (results.faceLandmarks) {
         for (const landmarks of results.faceLandmarks) {
