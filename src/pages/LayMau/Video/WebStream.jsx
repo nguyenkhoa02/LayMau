@@ -218,146 +218,146 @@ const WebStream = ({ images, setImages, totalImages }) => {
   const captureDelay = 2000; // 2 giây delay
   const predictWebcam = useCallback(async () => {
     if (!videoRef.current || !canvasRef.current || !faceLandmarker || !isStreaming) return;
-
+  
     const video = videoRef.current;
     if (video.videoWidth === 0 || video.videoHeight === 0) return;
-
+  
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     updateCanvasDimensions();
-
+  
     const startTimeMs = performance.now();
-
+  
+    // Define the bounding box area in the center of the canvas
+    const boxSize = 500;
+    const boxX = (canvas.width - boxSize) / 2;
+    const boxY = (canvas.height - boxSize) / 2;
+  
     try {
       const results = faceLandmarker.detectForVideo(video, startTimeMs);
-      
+  
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-
+  
+      // Draw the fixed bounding box
+      ctx.strokeStyle = '#00FF00';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(boxX, boxY, boxSize, boxSize);
+  
       if (results.faceLandmarks) {
         for (const landmarks of results.faceLandmarks) {
-          // Vẽ connectors landmrk
-          // drawingUtils.drawConnectors(
-          //     landmarks,
-          //     FaceLandmarker.FACE_LANDMARKS_TESSELATION,
-          //     {color: "#C0C0C070", lineWidth: 1}
-          // );
-
-          const noseTip = landmarks[1]; // Chóp mũi
-          const leftEye = landmarks[33]; // Mắt trái
-          const rightEye = landmarks[263]; // Mắt phải
-          const chin = landmarks[152]; // Cằm
-          const forehead = landmarks[10]; // Trán
-
-          // Tính khoảng cách giữa hai mắt để chuẩn hóa
-          const eyeDistance = Math.sqrt(
-            Math.pow(rightEye.x - leftEye.x, 2) + Math.pow(rightEye.y - leftEye.y, 2),
+          const facePoints = landmarks.map(point => ({
+            x: point.x * canvas.width,
+            y: point.y * canvas.height,
+          }));
+  
+          // Check if all landmarks are within the bounding box
+          const isFaceInBox = facePoints.every(point =>
+            point.x >= boxX && point.x <= boxX + boxSize &&
+            point.y >= boxY && point.y <= boxY + boxSize
           );
-
-          // Tính chiều cao khuôn mặt (từ trán đến cằm)
-          const faceHeight = Math.sqrt(
-            Math.pow(chin.x - forehead.x, 2) + Math.pow(chin.y - forehead.y, 2),
-          );
-
-          // Ngưỡng để xác định "chính diện" (15% kích thước)
-          const horizontalThreshold = eyeDistance * 0.1;
-          const verticalThreshold = faceHeight * 0.05;
-
-          // Xác định hướng ngang (trái/phải)
-          const noseCenterX = (leftEye.x + rightEye.x) / 2; // Tâm giữa hai mắt
-          let horizontalDirection = 'Center';
-          if (noseTip.x < noseCenterX - horizontalThreshold) {
-            horizontalDirection = 'Right'; // Quay sang phải từ góc nhìn người dùng
-          } else if (noseTip.x > noseCenterX + horizontalThreshold) {
-            horizontalDirection = 'Left'; // Quay sang trái từ góc nhìn người dùng
-          }
-
-          // Xác định hướng dọc (trên/dưới)
-          const faceCenterY = (forehead.y + chin.y) / 2; // Tâm theo chiều dọc
-          let verticalDirection = 'Center';
-          if (noseTip.y < faceCenterY - verticalThreshold) {
-            verticalDirection = 'Up'; // Nhìn lên
-          } else if (noseTip.y > faceCenterY + verticalThreshold) {
-            verticalDirection = 'Down'; // Nhìn xuống
-          }
-
-          // Kết hợp hướng
-          let faceDirection = '';
-          if (horizontalDirection === 'Center' && verticalDirection === 'Center') {
-            faceDirection = 'Front'; // Chính diện
-          } else {
-            faceDirection = `${verticalDirection !== 'Center' ? verticalDirection : ''} ${
-              horizontalDirection !== 'Center' ? horizontalDirection : ''
-            }`.trim();
-            if (!faceDirection) faceDirection = 'Center'; // Trường hợp không rõ ràng
-          }
-
-          let directionKey;
-          if (faceDirection === 'Front') directionKey = 'front';
-          else if (faceDirection === 'Left') directionKey = 'left';
-          else if (faceDirection === 'Right') directionKey = 'right';
-          else if (faceDirection === 'Up') directionKey = 'up';
-          else if (faceDirection === 'Down') directionKey = 'down';
-
-          const limit = totalImages / 5;
-          if (directionKey && images[directionKey] && images[directionKey].length < limit) {
-            const faceImage = cropFace(landmarks);
-            let imageData = await base64ToImageData(faceImage);
-
-            const embResult = await imageEmbedder.embed(imageData);
-            if (!embResult || !embResult.embeddings || embResult.embeddings.length === 0) {
-              console.error('Failed to generate embedding:', embResult);
-              continue; // Skip this iteration
+  
+          if (isFaceInBox) {
+            const noseTip = landmarks[1];
+            const leftEye = landmarks[33];
+            const rightEye = landmarks[263];
+            const chin = landmarks[152];
+            const forehead = landmarks[10];
+  
+            const eyeDistance = Math.sqrt(
+              Math.pow(rightEye.x - leftEye.x, 2) + Math.pow(rightEye.y - leftEye.y, 2)
+            );
+  
+            const faceHeight = Math.sqrt(
+              Math.pow(chin.x - forehead.x, 2) + Math.pow(chin.y - forehead.y, 2)
+            );
+  
+            const horizontalThreshold = eyeDistance * 0.1;
+            const verticalThreshold = faceHeight * 0.05;
+  
+            const noseCenterX = (leftEye.x + rightEye.x) / 2;
+            let horizontalDirection = 'Center';
+            if (noseTip.x < noseCenterX - horizontalThreshold) {
+              horizontalDirection = 'Right';
+            } else if (noseTip.x > noseCenterX + horizontalThreshold) {
+              horizontalDirection = 'Left';
             }
-            const emb = embResult.embeddings[0];
-
-            if (!emb || !emb.floatEmbedding) {
-              console.warn('Invalid embedding, skipping:', emb);
-              continue;
+  
+            const faceCenterY = (forehead.y + chin.y) / 2;
+            let verticalDirection = 'Center';
+            if (noseTip.y < faceCenterY - verticalThreshold) {
+              verticalDirection = 'Up';
+            } else if (noseTip.y > faceCenterY + verticalThreshold) {
+              verticalDirection = 'Down';
             }
-
-            // setEmbs((prev) => [...(prev || []), emb]);
-            // setImages((prev) => ({
-            //     ...prev,
-            //     [directionKey]: [...prev[directionKey], faceImage].slice(0, 2),
-            // }));
-
-            if (embs.length === 0) {
-              setEmbs([emb]);
-              setImages((prev) => ({
-                ...prev,
-                [directionKey]: [...prev[directionKey], faceImage].slice(0, limit),
-              }));
+  
+            let faceDirection = '';
+            if (horizontalDirection === 'Center' && verticalDirection === 'Center') {
+              faceDirection = 'Front';
             } else {
-              const similarities = embs.map((existingEmb) =>
-                ImageEmbedder.cosineSimilarity(emb, existingEmb),
-              );
-              const currentTime = performance.now();
-              const rate = Math.max(...similarities);
-              // Find the maximum similarity (closest match)
-              if (currentTime - lastCaptureTime.current >= captureDelay) {
-                if ((rate <= 0.85 && embs.length === 1) || (0.5 < rate && rate <= 0.85)) {
-                  setEmbs((prev) => [...prev, emb]);
-                  setImages((prev) => ({
-                    ...prev,
-                    [directionKey]: [...prev[directionKey], faceImage].slice(0, limit),
-                  }));
-                }
-                lastCaptureTime.current = currentTime; // Luôn cập nhật sau mỗi lần kiểm tra
-              } 
+              faceDirection = `${verticalDirection !== 'Center' ? verticalDirection : ''} ${horizontalDirection !== 'Center' ? horizontalDirection : ''}`.trim();
+              if (!faceDirection) faceDirection = 'Center';
             }
+  
+            let directionKey;
+            if (faceDirection === 'Front') directionKey = 'front';
+            else if (faceDirection === 'Left') directionKey = 'left';
+            else if (faceDirection === 'Right') directionKey = 'right';
+            else if (faceDirection === 'Up') directionKey = 'up';
+            else if (faceDirection === 'Down') directionKey = 'down';
+  
+            const limit = totalImages / 5;
+            if (directionKey && images[directionKey] && images[directionKey].length < limit) {
+              const faceImage = cropFace(landmarks);
+              let imageData = await base64ToImageData(faceImage);
+  
+              const embResult = await imageEmbedder.embed(imageData);
+              if (!embResult || !embResult.embeddings || embResult.embeddings.length === 0) {
+                console.error('Failed to generate embedding:', embResult);
+                continue;
+              }
+              const emb = embResult.embeddings[0];
+  
+              if (!emb || !emb.floatEmbedding) {
+                console.warn('Invalid embedding, skipping:', emb);
+                continue;
+              }
+  
+              if (embs.length === 0) {
+                setEmbs([emb]);
+                setImages((prev) => ({
+                  ...prev,
+                  [directionKey]: [...prev[directionKey], faceImage].slice(0, limit),
+                }));
+              } else {
+                const similarities = embs.map((existingEmb) =>
+                  ImageEmbedder.cosineSimilarity(emb, existingEmb)
+                );
+                const currentTime = performance.now();
+                const rate = Math.max(...similarities);
+                if (currentTime - lastCaptureTime.current >= captureDelay) {
+                  if ((rate <= 0.85 && embs.length === 1) || (0.5 < rate && rate <= 0.85)) {
+                    setEmbs((prev) => [...prev, emb]);
+                    setImages((prev) => ({
+                      ...prev,
+                      [directionKey]: [...prev[directionKey], faceImage].slice(0, limit),
+                    }));
+                  }
+                  lastCaptureTime.current = currentTime;
+                }
+              }
+            }
+  
+            ctx.fillStyle = '#FF0000';
+            ctx.font = '18px Arial';
+            ctx.fillText(`Face: ${faceDirection}`, 10, 30);
           }
-
-          // Hiển thị hướng quay mặt
-          ctx.fillStyle = '#FF0000';
-          ctx.font = '18px Arial';
-          ctx.fillText(`Face: ${faceDirection}`, 10, 30);
         }
       }
     } catch (err) {
       console.error('Face detection error:', err);
       setError('Face detection failed. Try restarting the camera.');
     }
-
+  
     setTimeout(predictWebcam, 1000);
   }, [
     faceLandmarker,
@@ -370,6 +370,7 @@ const WebStream = ({ images, setImages, totalImages }) => {
     setEmbs,
     imageEmbedder,
   ]);
+  
 
   // Cập nhật canvas khi cửa sổ thay đổi kích thước
   useEffect(() => {
@@ -424,6 +425,7 @@ const WebStream = ({ images, setImages, totalImages }) => {
         >
           <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
           <canvas ref={canvasRef} className="absolute top-0 left-0" />
+
           {!isStreaming && !error && (
             <div className="absolute inset-0 flex items-center justify-center bg-gray-800 text-white">
               <p className="text-center">Click the start button to enable webcam</p>

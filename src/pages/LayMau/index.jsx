@@ -27,7 +27,7 @@ const LayMau = () => {
     up: [],
   });
 
-  const totalImages = 3 * 5; // Maximum desired images for progress calculation
+  const totalImages = 2 * 5; // Maximum desired images for progress calculation
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
