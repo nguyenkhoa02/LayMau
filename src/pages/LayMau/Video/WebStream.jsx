@@ -14,16 +14,23 @@ const WebStream = ({ images, setImages, totalImages }) => {
   const [faceLandmarker, setFaceLandmarker] = useState(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState(null);
-  const [videoDimensions, setVideoDimensions] = useState({ width: 0, height: 0 });
+  // const [videoDimensions, setVideoDimensions] = useState({ width: 0, height: 0 });
   const [imageEmbedder, setImageEmbedder] = useState(null);
   const [embs, setEmbs] = useState([]);
   const [isMobileDevice, setIsMobileDevice] = useState(false);
   const [orientation, setOrientation] = useState('landscape');
-  const [displayDimensions, setDisplayDimensions] = useState({ width: 0, height: 0 });
-  const [cameraCapabilities, setCameraCapabilities] = useState(null);
+  const [progress, setProgress] = useState(0);
   const lastCaptureTime = useRef(0);
-  const captureDelay = 2000; // 2 seconds delay
+  const captureDelay = 1500; // 1 seconds delay
 
+  const [text, setText] = useState('Position your face in the circle');
+
+
+  useEffect(() => {
+    const imageCollected = Object.values(images).reduce((acc, arr) => acc + arr.length, 0);
+    const newProgress = totalImages > 0 ? (imageCollected / totalImages) * 100 : 0;
+    setProgress(newProgress);
+  }, [images, totalImages]);
 
   useEffect(() => {
     const checkMobileDevice = () => {
@@ -94,6 +101,7 @@ const WebStream = ({ images, setImages, totalImages }) => {
   };
 
 
+
   // Start video stream from webcam with proper resolution
   const startStream = async () => {
     try {
@@ -159,8 +167,8 @@ const WebStream = ({ images, setImages, totalImages }) => {
     if (videoWidth === 0 || videoHeight === 0) return;
 
     // Set display dimensions for UI
-    setVideoDimensions({ width: videoWidth, height: videoHeight });
-    setDisplayDimensions({ width: containerWidth, height: containerHeight });
+    // setVideoDimensions({ width: videoWidth, height: videoHeight });
+    // setDisplayDimensions({ width: containerWidth, height: containerHeight });
 
     // Set canvas display size to match container
     canvas.style.width = `${containerWidth}px`;
@@ -233,8 +241,7 @@ const WebStream = ({ images, setImages, totalImages }) => {
       const centerY = videoHeight / 2;
 
       // Make the circle 70% of the smaller dimension
-      const radius = smallerDimension * (isMobileDevice ? 0.4 : 0.35);
-      console.log('radius', radius);
+      const radius = smallerDimension * (isMobileDevice ? 0.4 : 1);
 
       // Clear the canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -247,17 +254,15 @@ const WebStream = ({ images, setImages, totalImages }) => {
       ctx.globalCompositeOperation = 'destination-out';
       ctx.beginPath();
       ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-      // ctx.arc(100, 75, 50, 0, 2 * Math.PI);
       ctx.fill();
       ctx.globalCompositeOperation = 'source-over';
 
       // Draw circle border
-      ctx.strokeStyle = '#00FF00';
+      ctx.strokeStyle = '#bfdbfe';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
       ctx.stroke();
-
 
 
       if (results.faceLandmarks && results.faceLandmarks.length > 0) {
@@ -273,123 +278,170 @@ const WebStream = ({ images, setImages, totalImages }) => {
           );
 
           if (isFaceInCircle) {
+            setText('');
             const noseTip = landmarks[1];
             const leftEye = landmarks[33];
             const rightEye = landmarks[263];
             const chin = landmarks[152];
             const forehead = landmarks[10];
 
-            const eyeDistance = Math.sqrt(
-                Math.pow(rightEye.x - leftEye.x, 2) + Math.pow(rightEye.y - leftEye.y, 2)
-            );
+            const leftEyePos = { x: leftEye.x * canvas.width, y: leftEye.y * canvas.height };
+            const rightEyePos = { x: rightEye.x * canvas.width, y: rightEye.y * canvas.height };
 
-            const faceHeight = Math.sqrt(
-                Math.pow(chin.x - forehead.x, 2) + Math.pow(chin.y - forehead.y, 2)
-            );
+            // Tính độ dốc giữa hai mắt
+            const slope = (rightEyePos.y - leftEyePos.y) / (rightEyePos.x - leftEyePos.x);
+            const angleRad = Math.atan(slope); // Góc trong radian
+            const angleDeg = angleRad * (180 / Math.PI); // Chuyển sang độ
 
-            const horizontalThreshold = eyeDistance * 0.1;
-            const verticalThreshold = faceHeight * 0.05;
+            // Đặt ngưỡng để xác định đầu nghiêng (ví dụ: ±10 độ)
+            const tiltThreshold = 10;
+            const isHeadTilted = Math.abs(angleDeg) > tiltThreshold;
 
-            const noseCenterX = (leftEye.x + rightEye.x) / 2;
-            let horizontalDirection = 'Center';
-            if (noseTip.x < noseCenterX - horizontalThreshold) {
-              horizontalDirection = 'Right';
-            } else if (noseTip.x > noseCenterX + horizontalThreshold) {
-              horizontalDirection = 'Left';
-            }
+            if (!isHeadTilted) {
+              const eyeDistance = Math.sqrt(
+                  Math.pow(rightEye.x - leftEye.x, 2) + Math.pow(rightEye.y - leftEye.y, 2)
+              );
 
-            const faceCenterY = (forehead.y + chin.y) / 2;
-            let verticalDirection = 'Center';
-            if (noseTip.y < faceCenterY - verticalThreshold) {
-              verticalDirection = 'Up';
-            } else if (noseTip.y > faceCenterY + verticalThreshold) {
-              verticalDirection = 'Down';
-            }
+              const faceHeight = Math.sqrt(
+                  Math.pow(chin.x - forehead.x, 2) + Math.pow(chin.y - forehead.y, 2)
+              );
 
-            let faceDirection = '';
-            if (horizontalDirection === 'Center' && verticalDirection === 'Center') {
-              faceDirection = 'Front';
-            } else {
-              faceDirection = `${verticalDirection !== 'Center' ? verticalDirection : ''} ${horizontalDirection !== 'Center' ? horizontalDirection : ''}`.trim();
-              if (!faceDirection) faceDirection = 'Center';
-            }
+              const horizontalThreshold = eyeDistance * 0.1;
+              const verticalThreshold = faceHeight * 0.05;
 
-            let directionKey;
-            if (faceDirection === 'Front') directionKey = 'front';
-            else if (faceDirection === 'Left') directionKey = 'left';
-            else if (faceDirection === 'Right') directionKey = 'right';
-            else if (faceDirection === 'Up') directionKey = 'up';
-            else if (faceDirection === 'Down') directionKey = 'down';
+              const noseCenterX = (leftEye.x + rightEye.x) / 2;
+              let horizontalDirection = 'Center';
+              if (noseTip.x < noseCenterX - horizontalThreshold) {
+                horizontalDirection = 'Right';
+              } else if (noseTip.x > noseCenterX + horizontalThreshold) {
+                horizontalDirection = 'Left';
+              }
 
-            const limit = totalImages / 5;
-            if (directionKey && images[directionKey] && images[directionKey].length < limit) {
-              const currentTime = performance.now();
+              const faceCenterY = (forehead.y + chin.y) / 2;
+              let verticalDirection = 'Center';
+              if (noseTip.y < faceCenterY - verticalThreshold) {
+                verticalDirection = 'Up';
+              } else if (noseTip.y > faceCenterY + verticalThreshold) {
+                verticalDirection = 'Down';
+              }
 
-              // Only capture if enough time has passed since last capture
-              if (currentTime - lastCaptureTime.current >= captureDelay) {
-                const faceImage = cropFace(landmarks);
-                if (faceImage) {
-                  let imageData = await base64ToImageData(faceImage);
+              let faceDirection = '';
+              if (horizontalDirection === 'Center' && verticalDirection === 'Center') {
+                faceDirection = 'Front';
+              } else {
+                faceDirection = `${verticalDirection !== 'Center' ? verticalDirection : ''} ${horizontalDirection !== 'Center' ? horizontalDirection : ''}`.trim();
+                if (!faceDirection) faceDirection = 'Center';
+              }
 
-                  if (imageEmbedder) {
-                    const embResult = await imageEmbedder.embed(imageData);
-                    if (embResult && embResult.embeddings && embResult.embeddings.length > 0) {
-                      const emb = embResult.embeddings[0];
+              let directionKey;
+              if (faceDirection === 'Front') directionKey = 'front';
+              else if (faceDirection === 'Left') directionKey = 'left';
+              else if (faceDirection === 'Right') directionKey = 'right';
+              else if (faceDirection === 'Up') directionKey = 'up';
+              else if (faceDirection === 'Down') directionKey = 'down';
 
-                      if (emb && emb.floatEmbedding) {
-                        if (embs.length === 0) {
-                          setEmbs([emb]);
-                          setImages((prev) => ({
-                            ...prev,
-                            [directionKey]: [...prev[directionKey], faceImage].slice(0, limit),
-                          }));
-                          lastCaptureTime.current = currentTime;
-                        } else {
-                          const similarities = embs.map((existingEmb) =>
-                              ImageEmbedder.cosineSimilarity(emb, existingEmb)
-                          );
+              const limit = totalImages / 5;
+              if (directionKey && images[directionKey] && images[directionKey].length < limit) {
+                const currentTime = performance.now();
 
-                          const rate = Math.max(...similarities);
-                          if ((rate <= 0.85 && embs.length === 1) || (0.5 < rate && rate <= 0.85)) {
-                            setEmbs((prev) => [...prev, emb]);
+                // Only capture if enough time has passed since last capture
+                if (currentTime - lastCaptureTime.current >= captureDelay) {
+                  const faceImage = cropFace(landmarks);
+                  if (faceImage) {
+                    let imageData = await base64ToImageData(faceImage);
+
+                    if (imageEmbedder) {
+
+                      const embResult = await imageEmbedder.embed(imageData);
+                      if (embResult && embResult.embeddings && embResult.embeddings.length > 0) {
+                        const emb = embResult.embeddings[0];
+
+                        if (emb && emb.floatEmbedding) {
+                          if (embs.length === 0) {
+
+                            setEmbs((prev) => {
+                              const newEmbs = [...prev, emb];
+                              console.log('Updated embs length (first):', newEmbs.length, newEmbs);
+                              return newEmbs;
+                            });
+
                             setImages((prev) => ({
                               ...prev,
                               [directionKey]: [...prev[directionKey], faceImage].slice(0, limit),
                             }));
+                            lastCaptureTime.current = currentTime;
+
+                          } else {
+                            const similarities = embs.map((existingEmb) =>
+                                ImageEmbedder.cosineSimilarity(emb, existingEmb)
+                            );
+
+                            const rate = Math.max(...similarities);
+                            if ((rate <= 0.85 && embs.length === 1) || (0.5 < rate && rate <= 0.6)) {
+                              setEmbs((prev) => {
+
+                                const newEmbs = [...prev, emb];
+                                console.log('Updated embs length (subsequent):', newEmbs.length, newEmbs);
+                                return newEmbs;
+                              });
+
+                              setImages((prev) => ({
+                                ...prev,
+                                [directionKey]: [...prev[directionKey], faceImage].slice(0, limit),
+                              }));
+                            }
+                            lastCaptureTime.current = currentTime;
                           }
-                          lastCaptureTime.current = currentTime;
                         }
                       }
                     }
                   }
                 }
               }
-            }
 
-            // Display face direction
-            ctx.fillStyle = '#FF0000';
-            ctx.font = '18px Arial';
-            ctx.fillText(`Face: ${faceDirection}`, 10, 30);
+              // Display face direction
+              ctx.fillStyle = '#FF0000';
+              ctx.font = '18px Arial';
+              ctx.fillText(`Face: ${faceDirection}`, 10, 30);
+
+
+            }
+            else {
+              setText('Please straighten your head');
+            }
           }
+          else {
+            setText('Position your face in the circle');
+          }
+
         }
+
+        const fontSize = Math.max(16, Math.min(canvas.width, canvas.height) * 0.02);
+        ctx.font = `${fontSize}px Arial`;
+        ctx.fillStyle = '#FFFFFF';
+        ctx.textAlign = 'center';
+        ctx.fillText(text, centerX, centerY + radius + fontSize * 1.5);
+
       }
+
+
     } catch (err) {
       console.error('Face detection error:', err);
       setError('Face detection failed. Try restarting the camera.');
     }
 
     // Schedule the next frame
-    setTimeout(predictWebcam, 1000);
-  }, [
-    faceLandmarker,
+    setTimeout(predictWebcam, captureDelay);
+  }, [faceLandmarker,
+    isStreaming,
+    updateCanvasDimensions,
+    isMobileDevice,
+    text,
     totalImages,
     images,
-    isStreaming,
-    setImages,
-    updateCanvasDimensions,
-    embs,
     imageEmbedder,
-  ]);
+    embs,
+    setImages]);
 
   // Handle window resize
   useEffect(() => {
@@ -401,6 +453,7 @@ const WebStream = ({ images, setImages, totalImages }) => {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, [updateCanvasDimensions]);
+
 
   // Handle device orientation change
   useEffect(() => {
@@ -435,6 +488,7 @@ const WebStream = ({ images, setImages, totalImages }) => {
       return () => videoElement.removeEventListener('loadedmetadata', handleVideoMetadata);
     }
   }, [isStreaming, faceLandmarker, predictWebcam, updateCanvasDimensions]);
+
 
   // Clean up on unmount
   useEffect(() => {
@@ -507,16 +561,16 @@ const WebStream = ({ images, setImages, totalImages }) => {
             )}
           </div>
 
-          {/*{isStreaming && videoDimensions.width > 0 && (*/}
+          {/*{isStreaming  && (*/}
           {/*    <div className="mt-2 text-xs text-gray-500 text-center">*/}
-          {/*      Video: {videoDimensions.width}×{videoDimensions.height} |*/}
-          {/*      Display: {Math.round(displayDimensions.width)}×{Math.round(displayDimensions.height)} |*/}
+          {/*      {text}*/}
           {/*      Mode: {orientation} |*/}
-          {/*      */}
+
 
 
           {/*    </div>*/}
           {/*)}*/}
+
         </div>
       </div>
   );

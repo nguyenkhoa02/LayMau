@@ -1,13 +1,14 @@
 import React from "react";
 
-const ProgressBar = ({progress}) => {
+const ProgressBar = ({ progress }) => {
     return (
-        <div className="w-full max-w-md mx-auto mb-8">
+        <div className="w-full max-w-md mx-auto mb-8 px-4 sm:px-0">
             <div className="relative pt-1">
                 <div className="flex mb-2 items-center justify-between">
                     <div>
                         <span
-                            className="text-xs font-semibold inline-block py-1 px-2 rounded-full text-blue-600 bg-blue-200">
+                            className="text-xs font-semibold inline-block py-1 px-2 text-blue-600 "
+                        >
                             Tiến độ thu thập
                         </span>
                     </div>
