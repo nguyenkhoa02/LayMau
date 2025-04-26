@@ -1,9 +1,9 @@
-import React, { useEffect } from 'react';
-import { useParams } from 'react-router-dom';
-import { Card, CardContent } from '@mui/material';
-import { Loader2 } from 'lucide-react';
-import { useDispatch, useSelector } from 'react-redux';
-import { getFaceStart } from '../../redux/faces/slice';
+import React, { useEffect } from "react";
+import { useParams } from "react-router-dom";
+import { Card, CardContent } from "@mui/material";
+import { Loader2 } from "lucide-react";
+import { useDispatch, useSelector } from "react-redux";
+import { getFaceStart } from "../../redux/faces/slice";
 
 const FaceDetail = () => {
   const { code } = useParams();
@@ -17,7 +17,7 @@ const FaceDetail = () => {
   }, [code, dispatch]);
 
   const loader = () => (
-    <div className={'w-full h-screen flex items-center justify-center'}>
+    <div className={"w-full h-screen flex items-center justify-center"}>
       <Loader2 className="h-16 w-16 text-blue-300 animate-spin" />
     </div>
   );
@@ -33,7 +33,7 @@ const FaceDetail = () => {
                 {data.images && data.images.length > 0 ? (
                   <div className="w-12 h-12 rounded-full overflow-hidden">
                     <img
-                      src={`${process.env.REACT_APP_API_URL}/${data.images[data.images.length - 1].replace(/\\/g, '/')}`}
+                      src={`${process.env.REACT_APP_API_URL}/${data.images[data.images.length - 1].replace(/\\/g, "/")}`}
                       alt={`${data.full_name}`}
                       className="w-full h-full object-cover"
                     />
@@ -45,7 +45,7 @@ const FaceDetail = () => {
                 )}
                 <h2 className="text-2xl font-bold">{data.full_name}</h2>
                 <p className="text-muted-foreground mb-4">
-                  {data.is_staff ? 'Nhân viên' : 'Sinh viên'}
+                  {data.is_staff ? "Nhân viên" : "Sinh viên"}
                 </p>
               </div>
             </CardContent>
@@ -62,7 +62,7 @@ const FaceDetail = () => {
                       className="aspect-square relative rounded-md overflow-hidden border"
                     >
                       <img
-                        src={`${process.env.REACT_APP_API_URL}/${item.replace(/\\/g, '/')}`}
+                        src={`${process.env.REACT_APP_API_URL}/${item.replace(/\\/g, "/")}`}
                         alt={`Project ${index}`}
                         className="object-cover w-full h-full transition-transform hover:scale-105"
                       />

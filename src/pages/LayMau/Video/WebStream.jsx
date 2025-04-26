@@ -3,6 +3,7 @@ import vision from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3"
 import { AlertCircle, Camera, CameraOff, RotateCcw } from "lucide-react";
 import { ImageEmbedder } from "@mediapipe/tasks-vision";
 import { base64ToImageData } from "../../../helper/utils/ImageBase64";
+import PropTypes from "prop-types";
 
 const { FaceLandmarker, FilesetResolver } = vision;
 
@@ -15,25 +16,30 @@ const WebStream = ({ images, setImages, totalImages }) => {
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState(null);
   // const [videoDimensions, setVideoDimensions] = useState({ width: 0, height: 0 });
-  const [embs, setEmbs] = useState([]);
   const [imageEmbedder, setImageEmbedder] = useState(null);
   const [isMobileDevice, setIsMobileDevice] = useState(false);
   const [orientation, setOrientation] = useState("landscape");
-  const [progress, setProgress] = useState(0);
+  const progress = useRef(0);
   const lastCaptureTime = useRef(0);
-  const captureDelay = 1500; // 1 seconds delay
-
-  const [text, setText] = useState("Position your face in the circle");
+  const captureDelay = 1500; // 1.5 seconds delay
+  const embsRef = useRef([]);
+  const imageRef = useRef({
+    front: [],
+    left: [],
+    right: [],
+    down: [],
+    up: [],
+  });
+  const textRef = useRef("Position your face in the circle");
+  const [direction, setDirection] = useState([]);
+  const currentDirectionIndex = useRef(0);
+  const limit = totalImages / 5;
 
   useEffect(() => {
-    const imageCollected = Object.values(images).reduce(
-      (acc, arr) => acc + arr.length,
-      0,
-    );
-    const newProgress =
-      totalImages > 0 ? (imageCollected / totalImages) * 100 : 0;
-    setProgress(newProgress);
-  }, [images, totalImages]);
+    if (!images) return;
+    const newDirections = Object.keys(images);
+    setDirection(newDirections);
+  }, [images]);
 
   useEffect(() => {
     const checkMobileDevice = () => {
@@ -67,8 +73,8 @@ const WebStream = ({ images, setImages, totalImages }) => {
             outputFaceBlendshapes: true,
             runningMode: "VIDEO",
             numFaces: 1,
-            minDetectionConfidence: 0.8,
-            minTrackingConfidence: 0.8,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5,
           },
         );
 
@@ -149,12 +155,12 @@ const WebStream = ({ images, setImages, totalImages }) => {
     }
   };
 
-  const restartStream = () => {
+  const restartStream = useCallback(() => {
     if (isStreaming) {
       stopStream();
       setTimeout(() => startStream(), 500);
     }
-  };
+  }, [isStreaming]);
 
   // Update canvas dimensions when video size changes
   const updateCanvasDimensions = useCallback(() => {
@@ -170,10 +176,6 @@ const WebStream = ({ images, setImages, totalImages }) => {
     // Get actual video dimensions
     const { videoWidth, videoHeight } = video;
     if (videoWidth === 0 || videoHeight === 0) return;
-
-    // Set display dimensions for UI
-    // setVideoDimensions({ width: videoWidth, height: videoHeight });
-    // setDisplayDimensions({ width: containerWidth, height: containerHeight });
 
     // Set canvas display size to match container
     canvas.style.width = `${containerWidth}px`;
@@ -198,8 +200,8 @@ const WebStream = ({ images, setImages, totalImages }) => {
       maxY = Math.max(maxY, point.y * videoRef.current.videoHeight);
     });
 
-    const XPadding = 20;
-    const YPadding = 20;
+    const XPadding = 10;
+    const YPadding = 10;
     const cropX = Math.max(0, minX - XPadding);
     const cropY = Math.max(0, minY - YPadding);
     const cropWidth = Math.min(
@@ -230,7 +232,15 @@ const WebStream = ({ images, setImages, totalImages }) => {
       cropHeight, // Output size
     );
 
-    return tempCanvas.toDataURL("image/png");
+    // return tempCanvas.toDataURL("image/png");
+    const resizedCanvas = document.createElement("canvas");
+    resizedCanvas.width = 112;
+    resizedCanvas.height = 112;
+    const resizedCtx = resizedCanvas.getContext("2d");
+
+    resizedCtx.drawImage(tempCanvas, 0, 0, 112, 112);
+
+    return resizedCanvas.toDataURL("image/png");
   };
 
   const predictWebcam = useCallback(async () => {
@@ -267,7 +277,7 @@ const WebStream = ({ images, setImages, totalImages }) => {
       const centerY = videoHeight / 2;
 
       // Make the circle 70% of the smaller dimension
-      const radius = smallerDimension * (isMobileDevice ? 0.4 : 1);
+      const radius = smallerDimension * (isMobileDevice ? 0.4 : 0.4);
 
       // Clear the canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -290,6 +300,18 @@ const WebStream = ({ images, setImages, totalImages }) => {
       ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
       ctx.stroke();
 
+      ctx.strokeStyle = "#2563eb";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.arc(
+        centerX,
+        centerY,
+        radius,
+        -Math.PI / 2, // Start at -90 degrees (12 o'clock)
+        Math.PI * 2 * (progress.current / totalImages) - Math.PI / 2, // End angle based on progress
+      );
+      ctx.stroke();
+
       if (results.faceLandmarks && results.faceLandmarks.length > 0) {
         for (const landmarks of results.faceLandmarks) {
           const facePoints = landmarks.map((point) => ({
@@ -306,7 +328,7 @@ const WebStream = ({ images, setImages, totalImages }) => {
           );
 
           if (isFaceInCircle) {
-            setText("");
+            textRef.current = "";
             const noseTip = landmarks[1];
             const leftEye = landmarks[33];
             const rightEye = landmarks[263];
@@ -329,7 +351,7 @@ const WebStream = ({ images, setImages, totalImages }) => {
             const angleDeg = angleRad * (180 / Math.PI); // Chuyển sang độ
 
             // Đặt ngưỡng để xác định đầu nghiêng (ví dụ: ±10 độ)
-            const tiltThreshold = 10;
+            const tiltThreshold = 20;
             const isHeadTilted = Math.abs(angleDeg) > tiltThreshold;
 
             if (!isHeadTilted) {
@@ -343,7 +365,7 @@ const WebStream = ({ images, setImages, totalImages }) => {
                   Math.pow(chin.y - forehead.y, 2),
               );
 
-              const horizontalThreshold = eyeDistance * 0.1;
+              const horizontalThreshold = eyeDistance * 0.15;
               const verticalThreshold = faceHeight * 0.05;
 
               const noseCenterX = (leftEye.x + rightEye.x) / 2;
@@ -381,69 +403,116 @@ const WebStream = ({ images, setImages, totalImages }) => {
               else if (faceDirection === "Up") directionKey = "up";
               else if (faceDirection === "Down") directionKey = "down";
 
-              const limit = totalImages / 5;
-              if (
+              const expectedDirection =
+                direction[currentDirectionIndex.current];
+              if (directionKey !== expectedDirection) {
+                textRef.current = `Please face ${expectedDirection}`;
+              } else if (
                 directionKey &&
-                images[directionKey] &&
-                images[directionKey].length < limit
+                imageRef.current[directionKey] &&
+                imageRef.current[directionKey].length < limit &&
+                directionKey === expectedDirection
               ) {
+                textRef.current = "";
                 const currentTime = performance.now();
 
                 // Only capture if enough time has passed since last capture
                 if (currentTime - lastCaptureTime.current >= captureDelay) {
                   const faceImage = cropFace(landmarks);
-                  console.log("embs: ", embs.length, embs);
-                  console.log("face: ", images.length, images);
-                  if (faceImage) {
+                  if (faceImage && imageEmbedder) {
                     let imageData = await base64ToImageData(faceImage);
+                    const embResult = await imageEmbedder.embed(imageData);
+                    if (
+                      embResult &&
+                      embResult.embeddings &&
+                      embResult.embeddings.length > 0
+                    ) {
+                      const emb = embResult.embeddings[0];
 
-                    if (imageEmbedder) {
-                      const embResult = await imageEmbedder.embed(imageData);
                       if (
-                        embResult &&
-                        embResult.embeddings &&
-                        embResult.embeddings.length > 0
+                        emb &&
+                        emb.floatEmbedding &&
+                        embsRef.current.length === 0
                       ) {
-                        const emb = embResult.embeddings[0];
+                        embsRef.current = [emb];
 
-                        if (emb && emb.floatEmbedding) {
-                          if (embs.length === 0) {
-                            setEmbs((prevEmbs) => [...prevEmbs, emb]);
-                            setImages((prev) => ({
-                              ...prev,
-                              [directionKey]: [
-                                ...prev[directionKey],
-                                faceImage,
-                              ].slice(0, limit),
-                            }));
-                            lastCaptureTime.current = currentTime;
+                        const prevImg = imageRef.current[directionKey] || [];
+                        imageRef.current[directionKey] = [
+                          ...prevImg,
+                          faceImage,
+                        ].slice(0, limit);
+
+                        // setImages((prev) => ({
+                        //   ...prev,
+                        //   [directionKey]: [
+                        //     ...prev[directionKey],
+                        //     faceImage,
+                        //   ].slice(0, limit),
+                        // }));
+                        setImages((prev) => ({
+                          ...prev,
+                          [directionKey]: imageRef.current[directionKey],
+                        }));
+                        progress.current = progress.current + 1;
+                        lastCaptureTime.current = currentTime;
+                      } else {
+                        const similarities = embsRef.current.map(
+                          (existingEmb) =>
+                            ImageEmbedder.cosineSimilarity(emb, existingEmb),
+                        );
+
+                        const rate = Math.max(...similarities);
+                        if (
+                          (rate <= 0.85 && embsRef.current.length === 1) ||
+                          (rate >= 0.5 && rate <= 0.85)
+                        ) {
+                          const prevImg = imageRef.current[directionKey] || [];
+                          imageRef.current[directionKey] = [
+                            ...prevImg,
+                            faceImage,
+                          ].slice(0, limit);
+
+                          setImages((prev) => ({
+                            ...prev,
+                            [directionKey]: imageRef.current[directionKey],
+                          }));
+
+                          // setImages((prev) => {
+                          //   return {
+                          //     ...prev,
+                          //     [directionKey]: [
+                          //       ...prev[directionKey],
+                          //       faceImage,
+                          //     ].slice(0, limit),
+                          //   };
+                          // });
+
+                          if (
+                            imageRef.current[directionKey].length <= limit &&
+                            !(
+                              typeof totalImages === "number" &&
+                              progress.current >= totalImages
+                            )
+                          ) {
+                            embsRef.current = [...embsRef.current, emb];
+                            progress.current = progress.current + 1;
                           } else {
-                            const similarities = embs.map((existingEmb) =>
-                              ImageEmbedder.cosineSimilarity(emb, existingEmb),
-                            );
-
-                            const rate = Math.max(...similarities);
-                            console.log("rate: ", rate);
-                            if (
-                              (rate <= 0.85 && embs.length === 1) ||
-                              (0.5 < rate && rate <= 0.8)
-                            ) {
-                              setEmbs((prevEmbs) => [...prevEmbs, emb]);
-                              setImages((prev) => ({
-                                ...prev,
-                                [directionKey]: [
-                                  ...prev[directionKey],
-                                  faceImage,
-                                ].slice(0, limit),
-                              }));
-                            }
-                            lastCaptureTime.current = currentTime;
+                            return;
                           }
                         }
+                        lastCaptureTime.current = currentTime;
                       }
                     }
                   }
                 }
+              }
+
+              if (
+                imageRef.current[expectedDirection].length === limit &&
+                currentDirectionIndex.current < 5
+              ) {
+                currentDirectionIndex.current =
+                  currentDirectionIndex.current + 1;
               }
 
               // Display face direction
@@ -451,10 +520,10 @@ const WebStream = ({ images, setImages, totalImages }) => {
               ctx.font = "18px Arial";
               ctx.fillText(`Face: ${faceDirection}`, 10, 30);
             } else {
-              setText("Please straighten your head");
+              textRef.current = "Xin hãy thẳng đầu";
             }
           } else {
-            setText("Position your face in the circle");
+            textRef.current = "Đặt khuôn mặt của bạn vào vòng tròn";
           }
         }
 
@@ -465,7 +534,11 @@ const WebStream = ({ images, setImages, totalImages }) => {
         ctx.font = `${fontSize}px Arial`;
         ctx.fillStyle = "#FFFFFF";
         ctx.textAlign = "center";
-        ctx.fillText(text, centerX, centerY + radius + fontSize * 1.5);
+        ctx.fillText(
+          textRef.current,
+          centerX,
+          centerY + radius + fontSize * 1.5,
+        );
       }
     } catch (err) {
       console.error("Face detection error:", err);
@@ -473,16 +546,15 @@ const WebStream = ({ images, setImages, totalImages }) => {
     }
 
     // Schedule the next frame
-    setTimeout(predictWebcam, captureDelay);
+    // setTimeout(predictWebcam, captureDelay);
+    requestAnimationFrame(predictWebcam);
   }, [
     faceLandmarker,
     isStreaming,
     updateCanvasDimensions,
     isMobileDevice,
-    text,
     totalImages,
     images,
-    embs,
     imageEmbedder,
     setImages,
   ]);
@@ -518,7 +590,7 @@ const WebStream = ({ images, setImages, totalImages }) => {
           handleOrientationChange,
         );
     }
-  }, [isStreaming, isMobileDevice]);
+  }, [isStreaming, isMobileDevice, restartStream]);
 
   // Start face detection when video is ready
   useEffect(() => {
@@ -541,6 +613,13 @@ const WebStream = ({ images, setImages, totalImages }) => {
   useEffect(() => {
     return () => stopStream();
   }, []);
+
+  useEffect(() => {
+    if (typeof totalImages === "number" && progress.current >= totalImages) {
+      console.log(progress.current, totalImages);
+      stopStream();
+    }
+  }, [progress.current, totalImages]);
 
   return (
     <div className="w-full max-w-3xl mx-auto p-2 md:p-4">
@@ -620,6 +699,12 @@ const WebStream = ({ images, setImages, totalImages }) => {
       </div>
     </div>
   );
+};
+
+WebStream.propTypes = {
+  images: PropTypes.array,
+  setImages: PropTypes.func.isRequired,
+  totalImages: PropTypes.number,
 };
 
 export default WebStream;

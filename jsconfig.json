@@ -1,29 +1,11 @@
 {
   "compilerOptions": {
-    "baseUrl": "src",
+    "target": "ES6",
+    "module": "commonJS",
+    "allowSyntheticDefaultImports": true,
+    "baseUrl": "./",
     "paths": {
-      "@Components/*": [
-        "Components/*"
-      ],
-      "@pages/*": [
-        "pages/*"
-      ],
-      "@redux/*": [
-        "redux/*"
-      ],
-      "@utils/*": [
-        "utils/*"
-      ],
-      "@assets/*": [
-        "assets/*"
-      ]
+      "~/*": ["./src/*"]
     }
-  },
-  "include": [
-    "src"
-  ],
-  "exclude": [
-    "node_modules",
-    "build"
-  ]
+  }
 }

@@ -1,15 +1,29 @@
-import React from 'react';
-import { Pencil, Trash2, ChevronUp, ChevronDown } from 'lucide-react';
+import React from "react";
+import { Pencil, Trash2, ChevronUp, ChevronDown } from "lucide-react";
+import PropTypes from "prop-types";
 
-const Table = ({ headers, data, sortField, sortDirection, onSort, onEdit, onDelete }) => {
+const Table = ({
+  headers,
+  data,
+  sortField,
+  sortDirection,
+  onSort,
+  onEdit,
+  onDelete,
+}) => {
   const SortIcon = ({ field }) => {
     if (sortField !== field)
-      return <ChevronUp className="h-4 w-4 text-gray-400 opacity-0 group-hover:opacity-100" />;
-    return sortDirection === 'asc' ? (
+      return (
+        <ChevronUp className="h-4 w-4 text-gray-400 opacity-0 group-hover:opacity-100" />
+      );
+    return sortDirection === "asc" ? (
       <ChevronUp className="h-4 w-4 text-blue-500" />
     ) : (
       <ChevronDown className="h-4 w-4 text-blue-500" />
     );
+  };
+  SortIcon.propTypes = {
+    field: PropTypes.string.isRequired,
   };
 
   return (
@@ -22,7 +36,7 @@ const Table = ({ headers, data, sortField, sortDirection, onSort, onEdit, onDele
                 <th
                   key={key}
                   scope="col"
-                  className={`px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${sortable ? 'cursor-pointer group' : ''}`}
+                  className={`px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${sortable ? "cursor-pointer group" : ""}`}
                   onClick={() => sortable && onSort(key)}
                 >
                   <div className="flex items-center gap-1">
@@ -67,6 +81,16 @@ const Table = ({ headers, data, sortField, sortDirection, onSort, onEdit, onDele
       </div>
     </div>
   );
+};
+
+Table.propTypes = {
+  headers: PropTypes.array.isRequired,
+  data: PropTypes.array.isRequired,
+  sortField: PropTypes.string,
+  sortDirection: PropTypes.string,
+  onDelete: PropTypes.func.isRequired,
+  onEdit: PropTypes.func.isRequired,
+  onSort: PropTypes.func.isRequired,
 };
 
 export default Table;

@@ -1,4 +1,4 @@
-import { createSlice } from '@reduxjs/toolkit';
+import { createSlice } from "@reduxjs/toolkit";
 
 const initialState = {
   data: null,
@@ -13,7 +13,7 @@ const initialState = {
 };
 
 const faceSlice = createSlice({
-  name: 'face',
+  name: "face",
   initialState,
   reducers: {
     createFaceStart: (state) => {

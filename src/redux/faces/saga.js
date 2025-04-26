@@ -1,5 +1,11 @@
-import { takeLatest, put, call } from 'redux-saga/effects';
-import { deleteFaceAPI, getFaceByCodeAPI, getFacesAPI, sendFaceAPI, sendVideoAPI } from './api';
+import { takeLatest, put, call } from "redux-saga/effects";
+import {
+  deleteFaceAPI,
+  getFaceByCodeAPI,
+  getFacesAPI,
+  sendFaceAPI,
+  sendVideoAPI,
+} from "./api";
 import {
   deleteFaceFailure,
   deleteFaceStart,
@@ -16,7 +22,7 @@ import {
   getFaceSuccess,
   getFaceFailure,
   getFaceStart,
-} from './slice';
+} from "./slice";
 
 function* handleSendFaces(action) {
   try {
@@ -24,7 +30,8 @@ function* handleSendFaces(action) {
     const response = yield call(sendFaceAPI, data);
     yield put(createFaceSuccess(response));
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
+    const errorMessage =
+      error instanceof Error ? error.message : "An unexpected error occurred";
     yield put(createFaceFailure(errorMessage));
   }
 }
@@ -35,7 +42,8 @@ function* handleGetFaces(action) {
     const response = yield call(getFacesAPI, [page, limit]);
     yield put(getFacesSuccess(response));
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
+    const errorMessage =
+      error instanceof Error ? error.message : "An unexpected error occurred";
     yield put(getFacesFailure(errorMessage));
   }
 }
@@ -46,7 +54,8 @@ function* handleSendVideo(action) {
     const response = yield call(sendVideoAPI, data);
     yield put(createVideoSuccess(response));
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
+    const errorMessage =
+      error instanceof Error ? error.message : "An unexpected error occurred";
     yield put(createVideoFailure(errorMessage));
   }
 }
@@ -57,7 +66,8 @@ function* handleDeleteFace(action) {
     const response = yield call(deleteFaceAPI, data);
     yield put(deleteFaceSuccess(response));
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
+    const errorMessage =
+      error instanceof Error ? error.message : "An unexpected error occurred";
     yield put(deleteFaceFailure(errorMessage));
   }
 }
@@ -68,7 +78,8 @@ function* handleGetFace(action) {
     const response = yield call(getFaceByCodeAPI, data);
     yield put(getFaceSuccess(response));
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
+    const errorMessage =
+      error instanceof Error ? error.message : "An unexpected error occurred";
     yield put(getFaceFailure(errorMessage));
   }
 }
