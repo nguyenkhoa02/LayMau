@@ -5,6 +5,7 @@ import { ProgressBar } from "../../Components";
 import InfoForm from "./components/InfoForm";
 import { useDispatch } from "react-redux";
 import { createFaceStart } from "../../redux/faces/slice";
+import { ImageDirection } from "../../helper/utils/LayMau";
 
 const base64ToBlob = (base64, contentType = "image/jpeg") => {
   const byteCharacters = atob(base64.split(",")[1]); // Remove "data:image/jpeg;base64," prefix
@@ -19,20 +20,9 @@ const base64ToBlob = (base64, contentType = "image/jpeg") => {
 const LayMau = () => {
   const dispatch = useDispatch();
 
-  const [images, setImages] = useState({
-    front: [],
-    left: [],
-    right: [],
-    down: [],
-    up: [],
-    masked_front: [],
-    masked_left: [],
-    masked_right: [],
-    masked_down: [],
-    masked_up: [],
-  });
+  const [images, setImages] = useState(ImageDirection);
 
-  const totalImages = 2 * 5; // Maximum desired images for progress calculation
+  const totalImages = 2 * 7; // Maximum desired images for progress calculation
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {

@@ -146,6 +146,45 @@ export const detectMask = async (base64Image, maskModel) => {
   });
 };
 
+export const detectMask2 = async (base64Image, maskModel) => {
+  if (!maskModel) {
+    console.error("maskModel is undefined");
+    throw new Error("maskModel is not initialized");
+  }
+
+  const img = new Image();
+  img.src = base64Image;
+
+  // Wait for the image to load before proceeding
+  await new Promise((resolve, reject) => {
+    img.onload = resolve;
+    img.onerror = () => reject(new Error("Failed to load image"));
+  });
+
+  try {
+    const rawImgTensor = tf.browser.fromPixels(img);
+    const processedTensor = tf.tidy(() => {
+      // Resize the image to the required dimensions for the model
+      return rawImgTensor
+        .resizeNearestNeighbor([224, 224])
+        .toFloat()
+        .div(tf.scalar(255))
+        .expandDims();
+    });
+
+    // Run prediction
+    const prediction = await maskModel.predict(processedTensor).arraySync();
+
+    // Clean up tensors
+    rawImgTensor.dispose();
+    processedTensor.dispose();
+
+    return prediction[0] > 0;
+  } catch (error) {
+    console.error("Error in mask detection:", error);
+    throw error;
+  }
+};
 /**
  * Determines face direction based on facial landmarks
  * @param {Object} landmarks - The facial landmarks
@@ -162,11 +201,11 @@ export const determineFaceDirection = (landmarks) => {
   const eyeDistance = Math.sqrt(
     Math.pow(rightEye.x - leftEye.x, 2) + Math.pow(rightEye.y - leftEye.y, 2),
   );
-
   const faceHeight = Math.sqrt(
     Math.pow(chin.x - forehead.x, 2) + Math.pow(chin.y - forehead.y, 2),
   );
 
+  // Use similar threshold sensitivities for horizontal and vertical detection
   const horizontalThreshold = eyeDistance * 0.15;
   const verticalThreshold = faceHeight * 0.01;
 
@@ -195,16 +234,197 @@ export const determineFaceDirection = (landmarks) => {
     if (!faceDirection) faceDirection = "Center";
   }
 
-  let directionKey;
-  if (faceDirection === "Front") directionKey = "front";
-  else if (faceDirection === "Left") directionKey = "left";
-  else if (faceDirection === "Right") directionKey = "right";
-  else if (faceDirection === "Up") directionKey = "up";
-  else if (faceDirection === "Down") directionKey = "down";
+  // Set default directionKey value
+  let directionKey = "front"; // Default value
+
+  // Use includes() instead of contain()
+  if (faceDirection.includes("Front")) directionKey = "front";
+  else if (faceDirection.includes("Left")) directionKey = "left";
+  else if (faceDirection.includes("Right")) directionKey = "right";
+  else if (faceDirection.includes("Up")) directionKey = "up";
+  else if (faceDirection.includes("Down")) directionKey = "down";
 
   return {
     directionKey,
     faceDirection,
+  };
+};
+
+/**
+ * Determines if face is at a specific vertical angle
+ * @param {Array} landmarks - The facial landmarks
+ * @param {number} targetAngle - The target angle in degrees to detect (e.g., 45, 70)
+ * @param {number} tolerance - Acceptable deviation from target angle in degrees
+ * @returns {boolean} - True if face is at the specified angle within tolerance
+ */
+export const isFaceAtVerticalAngle = (
+  landmarks,
+  targetAngle,
+  tolerance = 5,
+) => {
+  const noseTip = landmarks[1];
+  const chin = landmarks[152];
+  const forehead = landmarks[10];
+
+  // Calculate angle between nose and vertical face axis
+  const faceVector = {
+    x: forehead.x - chin.x,
+    y: forehead.y - chin.y,
+  };
+
+  const noseOffset = {
+    x: noseTip.x - (forehead.x + chin.x) / 2,
+    y: noseTip.y - (forehead.y + chin.y) / 2,
+  };
+
+  // Calculate the vertical angle using dot product and vector magnitudes
+  const dotProduct = noseOffset.y * faceVector.y;
+  const noseVectorMagnitude = Math.sqrt(
+    noseOffset.x * noseOffset.x + noseOffset.y * noseOffset.y,
+  );
+  const faceVectorMagnitude = Math.sqrt(
+    faceVector.x * faceVector.x + faceVector.y * faceVector.y,
+  );
+
+  // Calculate the angle in degrees
+  const cosAngle = dotProduct / (noseVectorMagnitude * faceVectorMagnitude);
+  const angleRad = Math.acos(Math.min(1, Math.max(-1, cosAngle)));
+  const angleDeg = angleRad * (180 / Math.PI);
+
+  // Determine if vertical tilt is upward or downward
+  const isUpward = noseTip.y < (forehead.y + chin.y) / 2;
+  const adjustedAngle = isUpward ? angleDeg : -angleDeg;
+
+  // Check if the angle is within tolerance of the target angle
+  return Math.abs(adjustedAngle - targetAngle) <= tolerance;
+};
+
+/**
+ * Determines if face is at a specific horizontal angle
+ * @param {Array} landmarks - The facial landmarks
+ * @param {number} targetAngle - The target angle in degrees to detect (e.g., 45, 70)
+ * @param {number} tolerance - Acceptable deviation from target angle in degrees
+ * @returns {boolean} - True if face is at the specified angle within tolerance
+ */
+export const isFaceAtHorizontalAngle = (
+  landmarks,
+  targetAngle,
+  tolerance = 5,
+) => {
+  const noseTip = landmarks[1];
+  const leftEye = landmarks[33];
+  const rightEye = landmarks[263];
+
+  // Calculate distance between eyes for normalization
+  const eyeDistance = Math.sqrt(
+    Math.pow(rightEye.x - leftEye.x, 2) + Math.pow(rightEye.y - leftEye.y, 2),
+  );
+
+  // Calculate nose offset from the midpoint between eyes
+  const noseMidpointX = (leftEye.x + rightEye.x) / 2;
+  const noseOffset = Math.abs(noseTip.x - noseMidpointX);
+
+  // Calculate the ratio of nose offset to eye distance
+  // This ratio correlates with the horizontal angle of the face
+  const offsetRatio = noseOffset / eyeDistance;
+
+  // Convert ratio to angle (approximate based on trigonometry)
+  // The conversion factors below are calibrated to match standard face angles
+  const angleEstimate = Math.atan(offsetRatio * 2.5) * (180 / Math.PI);
+
+  // Determine left/right direction
+  const isLookingRight = noseTip.x < noseMidpointX;
+  const horizontalAngle = isLookingRight ? angleEstimate : -angleEstimate;
+
+  // Check if the angle is within tolerance of the target angle
+  return Math.abs(Math.abs(horizontalAngle) - targetAngle) <= tolerance;
+};
+
+/**
+ * Enhanced face direction detection with specific horizontal angle detection
+ * @param {Array} landmarks - The facial landmarks
+ * @returns {Object} - Enhanced direction information with horizontal angle data
+ */
+export const determineFaceDirectionWithHorizontalAngle = (landmarks) => {
+  const noseTip = landmarks[1];
+  const leftEye = landmarks[33];
+  const rightEye = landmarks[263];
+  const chin = landmarks[152];
+  const forehead = landmarks[10];
+
+  // Calculate head tilt
+  const eyeDistance = Math.sqrt(
+    Math.pow(rightEye.x - leftEye.x, 2) + Math.pow(rightEye.y - leftEye.y, 2),
+  );
+  const faceHeight = Math.sqrt(
+    Math.pow(chin.x - forehead.x, 2) + Math.pow(chin.y - forehead.y, 2),
+  );
+
+  // Calculate horizontal angle
+  const noseMidpointX = (leftEye.x + rightEye.x) / 2;
+  const noseOffset = Math.abs(noseTip.x - noseMidpointX);
+  const offsetRatio = noseOffset / eyeDistance;
+  const horizontalAngleEstimate =
+    Math.atan(offsetRatio * 2.5) * (180 / Math.PI);
+  const isLookingRight = noseTip.x < noseMidpointX;
+  const horizontalAngle = isLookingRight
+    ? horizontalAngleEstimate
+    : -horizontalAngleEstimate;
+
+  // Determine horizontal direction based on angle ranges
+  // 20-40 degrees is half, >50 is right/left
+  let horizontalDirection = "Center";
+  const absAngle = Math.abs(horizontalAngle);
+
+  if (absAngle > 50) {
+    horizontalDirection = isLookingRight ? "Right" : "Left";
+  } else if (absAngle >= 20 && absAngle <= 40) {
+    horizontalDirection = isLookingRight ? "Half Right" : "Half Left";
+  } else if (absAngle > 10) {
+    // Use the basic threshold approach as fallback for smaller angles
+    const horizontalThreshold = eyeDistance * 0.15;
+    if (noseTip.x < noseMidpointX - horizontalThreshold) {
+      horizontalDirection = "Right";
+    } else if (noseTip.x > noseMidpointX + horizontalThreshold) {
+      horizontalDirection = "Left";
+    }
+  }
+
+  // Determine vertical direction using the existing threshold approach
+  const verticalThreshold = faceHeight * 0.05;
+  const faceCenterY = (forehead.y + chin.y) / 2;
+  let verticalDirection = "Center";
+  if (noseTip.y < faceCenterY - verticalThreshold) {
+    verticalDirection = "Up";
+  } else if (noseTip.y > faceCenterY + verticalThreshold) {
+    verticalDirection = "Down";
+  }
+
+  // Build final face direction string
+  let faceDirection = "";
+  if (horizontalDirection === "Center" && verticalDirection === "Center") {
+    faceDirection = "Front";
+  } else {
+    faceDirection =
+      `${verticalDirection !== "Center" ? verticalDirection : ""} ${horizontalDirection !== "Center" ? horizontalDirection : ""}`.trim();
+    if (!faceDirection) faceDirection = "Center";
+  }
+
+  // Set directionKey based on face direction
+  let directionKey = "front"; // Default value
+  if (faceDirection.includes("Front")) directionKey = "front";
+  else if (faceDirection.includes("Half Left")) directionKey = "halfLeft";
+  else if (faceDirection.includes("Half Right")) directionKey = "halfRight";
+  else if (faceDirection.includes("Left")) directionKey = "left";
+  else if (faceDirection.includes("Right")) directionKey = "right";
+  else if (faceDirection.includes("Up")) directionKey = "up";
+  else if (faceDirection.includes("Down")) directionKey = "down";
+
+  return {
+    directionKey,
+    faceDirection,
+    horizontalAngle,
+    absAngle,
   };
 };
 
@@ -398,4 +618,38 @@ export const drawWebcamInterface = (
     centerX,
     centerY - radius - fontSize,
   );
+};
+
+// Sample image object
+export const ImageDirection = {
+  front: [],
+  left: [],
+  halfLeft: [],
+  right: [],
+  halfRight: [],
+  down: [],
+  up: [],
+  masked_front: [],
+  masked_left: [],
+  masked_halfLeft: [],
+  masked_right: [],
+  masked_halfRight: [],
+  masked_down: [],
+  masked_up: [],
+};
+
+export const CheckImageDirection = () =>
+  Object.fromEntries(Object.keys(ImageDirection).map((key) => [key, false]));
+
+export const checkCompletedUnmask = (completedDirections) => {
+  const unmaskKeys = [
+    "front",
+    "left",
+    "halfLeft",
+    "right",
+    "halfRight",
+    "down",
+    "up",
+  ];
+  return unmaskKeys.every((key) => completedDirections[key] === true);
 };

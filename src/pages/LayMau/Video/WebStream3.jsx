@@ -2,13 +2,19 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, Camera, CameraOff, RotateCcw } from "lucide-react";
 import PropTypes from "prop-types";
 import {
+  base64ToImageData,
+  checkCompletedUnmask,
+  CheckImageDirection,
   cropFace,
   detectMask,
+  determineFaceDirectionWithHorizontalAngle,
   getDeviceInfo,
+  ImageDirection,
+  isFaceInCircle,
   isHeadTilted,
 } from "../../../helper/utils/LayMau";
 import * as tf from "@tensorflow/tfjs";
-import { DrawingUtils } from "@mediapipe/tasks-vision";
+import { ImageEmbedder } from "@mediapipe/tasks-vision";
 
 const vision = await import(
   "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/+esm"
@@ -20,17 +26,27 @@ if (!FaceLandmarker || !FilesetResolver) {
   console.error("Failed to load Mediapipe vision components.");
 }
 
-const WebStream = () => {
+const WebStream = ({ images, setImages, totalImages }) => {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const containerRef = useRef(null);
+  const maskDetectionRef = useRef(false);
 
   const [faceLandmarker, setFaceLandmarker] = useState(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState(null);
+  const [imageEmbedder, setImageEmbedder] = useState(null);
   const [isMobileDevice, setIsMobileDevice] = useState(false);
   const [orientation, setOrientation] = useState("landscape");
+  const progress = useRef(0);
+  const lastCaptureTime = useRef(0);
+  const captureDelay = 500; // 0.5 seconds delay
+  const embsRef = useRef([]);
+  const imageRef = useRef(ImageDirection);
+  const completedDirections = useRef(CheckImageDirection());
+  const intructionRef = useRef("Position your face in the circle");
+  const limit = totalImages / 10;
   const [maskModel, setMaskModel] = useState(null);
 
   // Update canvas dimensions based on the container size
@@ -107,6 +123,43 @@ const WebStream = () => {
     }
   }, [isStreaming]);
 
+  const resetStream = () => {
+    // Reset image references
+    Object.keys(imageRef.current).forEach((key) => {
+      imageRef.current[key] = [];
+    });
+
+    // Reset state
+    setImages(ImageDirection);
+
+    // Reset tracking variables
+    embsRef.current = [];
+    progress.current = 0;
+    lastCaptureTime.current = 0;
+
+    // Reset completion status
+    completedDirections.current = CheckImageDirection();
+  };
+
+  const saveImage = async (faceImage, directionKey) => {
+    const isMasked =
+      (await detectMask(faceImage, maskModel)) && maskDetectionRef.current;
+    directionKey = isMasked ? "masked_" + directionKey : directionKey;
+
+    console.log(directionKey);
+
+    if (!imageRef.current[directionKey]) {
+      imageRef.current[directionKey] = [];
+    }
+    const prevImg = imageRef.current[directionKey];
+    imageRef.current[directionKey] = [...prevImg, faceImage].slice(0, limit);
+    setImages((prev) => ({
+      ...prev,
+      [directionKey]: imageRef.current[directionKey],
+    }));
+    completedDirections.current[directionKey] = true;
+  };
+
   // Predict using the webcam stream
   const predictWebcam = useCallback(async () => {
     // Check if the video and canvas elements are available
@@ -126,7 +179,6 @@ const WebStream = () => {
     // Get the canvas context
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
-    const drawingUtils = new DrawingUtils(ctx);
 
     // Set the canvas dimensions
     updateCanvasDimensions();
@@ -140,83 +192,170 @@ const WebStream = () => {
         startTimeMs,
       );
 
+      // Calculate the appropriate circle size based on the video dimensions
+      const videoWidth = canvas.width;
+      const videoHeight = canvas.height;
+      const smallerDimension = Math.min(videoWidth, videoHeight);
+
+      // Circle should be centered in the frame
+      const centerX = videoWidth / 2;
+      const centerY = videoHeight / 2;
+
+      // Make the circle 70% of the smaller dimension
+      const radius = smallerDimension * (isMobileDevice ? 0.4 : 0.4);
+
+      // Clear the canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw semi-transparent overlay
+      ctx.fillStyle = "rgba(128, 128, 128, 0.6)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Create transparent circle
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalCompositeOperation = "source-over";
+
+      // Draw circle border
+      ctx.strokeStyle = "#bfdbfe";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Draw progress arc
+      ctx.strokeStyle = "#2563eb";
+      ctx.lineWidth = 5;
+      const progressPercentage = progress.current / (limit * totalImages);
+      ctx.beginPath();
+      ctx.arc(
+        centerX,
+        centerY,
+        radius,
+        -Math.PI / 2, // Start at -90 degrees (12 o'clock)
+        Math.PI * 2 * progressPercentage - Math.PI / 2, // End angle based on progress
+      );
+      ctx.stroke();
+
       if (
         faceResults.faceLandmarks.length &&
         faceResults.faceLandmarks.length > 0
       ) {
         for (const landmarks of faceResults.faceLandmarks) {
-          // const facePoints = landmarks.map((point) => ({
-          //   x: point.x * canvas.width,
-          //   y: point.y * canvas.height,
-          // }));
+          const facePoints = landmarks.map((point) => ({
+            x: point.x * canvas.width,
+            y: point.y * canvas.height,
+          }));
+
+          const isFaceInZone = isFaceInCircle(
+            facePoints,
+            centerX,
+            centerY,
+            radius,
+          );
 
           // Check if the head is tilted, Tilt Threshold is 20 degrees
+          if (
+            isFaceInZone &&
+            !isHeadTilted(landmarks, canvas.width, canvas.height, 20)
+          ) {
+            intructionRef.current = "";
+            const { directionKey: initialDirectionKey } =
+              determineFaceDirectionWithHorizontalAngle(landmarks);
+            const faceImage = cropFace(video, landmarks);
+            const directionKey = initialDirectionKey;
 
-          // const isWearingMask = await detectMask(
-          //   cropFace(video, landmarks),
-          //   maskModel,
-          // );
-          drawingUtils.drawConnectors(
-            landmarks,
-            FaceLandmarker.FACE_LANDMARKS_TESSELATION,
-            { color: "#C0C0C070", lineWidth: 1 },
-          );
+            const currentTime = performance.now();
 
-          drawingUtils.drawConnectors(
-            landmarks,
-            FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE,
-            { color: "#FF3030" },
-          );
-          drawingUtils.drawConnectors(
-            landmarks,
-            FaceLandmarker.FACE_LANDMARKS_RIGHT_EYEBROW,
-            { color: "#FF3030" },
-          );
-          drawingUtils.drawConnectors(
-            landmarks,
-            FaceLandmarker.FACE_LANDMARKS_LEFT_EYE,
-            { color: "#30FF30" },
-          );
-          drawingUtils.drawConnectors(
-            landmarks,
-            FaceLandmarker.FACE_LANDMARKS_LEFT_EYEBROW,
-            { color: "#30FF30" },
-          );
-          drawingUtils.drawConnectors(
-            landmarks,
-            FaceLandmarker.FACE_LANDMARKS_FACE_OVAL,
-            { color: "#E0E0E0" },
-          );
-          drawingUtils.drawConnectors(
-            landmarks,
-            FaceLandmarker.FACE_LANDMARKS_LIPS,
-            { color: "#E0E0E0" },
-          );
-
-          drawingUtils.drawConnectors(
-            landmarks,
-            FaceLandmarker.FACE_LANDMARKS_RIGHT_IRIS,
-            { color: "#FF3030" },
-          );
-          drawingUtils.drawConnectors(
-            landmarks,
-            FaceLandmarker.FACE_LANDMARKS_LEFT_IRIS,
-            { color: "#30FF30" },
-          );
-
-          console.log("isWearingMask:", isWearingMask);
-          console.log("Landmarks:", landmarks);
-          console.log(
-            !isHeadTilted(landmarks, canvas.width, canvas.height, 20),
-          );
+            if (
+              !completedDirections.current[directionKey] &&
+              currentTime - lastCaptureTime.current >= captureDelay
+            ) {
+              let imageData = await base64ToImageData(faceImage);
+              const embResult = await imageEmbedder.embed(imageData);
+              if (
+                embResult &&
+                embResult.embeddings &&
+                embResult.embeddings.length > 0
+              ) {
+                const emb = embResult.embeddings[0];
+                if (emb && emb.floatEmbedding) {
+                  if (embsRef.current.length === 0) {
+                    embsRef.current = [emb];
+                    await saveImage(faceImage, directionKey);
+                    progress.current = progress.current + 1;
+                    lastCaptureTime.current = currentTime;
+                  } else {
+                    const similarities = embsRef.current.map((existingEmb) =>
+                      ImageEmbedder.cosineSimilarity(emb, existingEmb),
+                    );
+                    const rate = Math.max(...similarities);
+                    if (
+                      (rate <= 0.85 && embsRef.current.length === 1) ||
+                      (rate >= 0.5 && rate <= 0.85)
+                    ) {
+                      await saveImage(faceImage, directionKey);
+                      lastCaptureTime.current = currentTime;
+                      if (
+                        imageRef.current[directionKey].length <= limit &&
+                        !(
+                          typeof totalImages === "number" &&
+                          progress.current >= totalImages
+                        )
+                      ) {
+                        embsRef.current = [...embsRef.current, emb];
+                        progress.current = progress.current + 1;
+                      } else {
+                        return;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            intructionRef.current = "Position your face in the zone";
+            ctx.fillStyle = "#FF0000";
+            ctx.font = "18px Arial";
+            ctx.fillText(`Face: ${directionKey}`, 10, 30);
+          } else {
+            intructionRef.current =
+              "Position your face in the circle and keep your head straight";
+          }
         }
+      }
+
+      const fontSize = Math.max(
+        16,
+        Math.min(canvas.width, canvas.height) * 0.02,
+      );
+      ctx.font = `${fontSize}px Arial`;
+      ctx.fillStyle = "#FFFFFF";
+      ctx.textAlign = "center";
+      ctx.fillText(
+        ` ${intructionRef.current}`,
+        centerX,
+        centerY + radius + fontSize * 1.5,
+      );
+      if (checkCompletedUnmask(completedDirections.current)) {
+        maskDetectionRef.current = true;
       }
     } catch (error) {
       console.error("Error during face detection:", error);
     }
 
     requestAnimationFrame(predictWebcam);
-  }, [faceLandmarker, updateCanvasDimensions, isStreaming]);
+  }, [
+    faceLandmarker,
+    updateCanvasDimensions,
+    isStreaming,
+    images,
+    setImages,
+    totalImages,
+    completedDirections,
+    limit,
+  ]);
 
   // Check if the device is mobile and update orientation
   useEffect(() => {
@@ -264,6 +403,28 @@ const WebStream = () => {
     loadFaceLandmarker();
   }, []);
 
+  // Load the ImageEmbedder model
+  useEffect(() => {
+    const loadImageEmbedder = async () => {
+      try {
+        const vision = await FilesetResolver.forVisionTasks(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm",
+        );
+        const embedder = await ImageEmbedder.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: `https://storage.googleapis.com/mediapipe-models/image_embedder/mobilenet_v3_small/float32/1/mobilenet_v3_small.tflite`,
+            delegate: "CPU",
+          },
+        });
+        setImageEmbedder(embedder);
+      } catch (e) {
+        console.error("Error loading ImageEmbedder:", e);
+        setError("Failed to load embedding model.");
+      }
+    };
+    loadImageEmbedder();
+  }, []);
+
   // Load the TensorFlow.js model for mask classification
   useEffect(() => {
     let isMounted = true;
@@ -282,7 +443,7 @@ const WebStream = () => {
       }
     };
 
-    loadModel();
+    loadModel().then();
 
     return () => {
       isMounted = false;
@@ -395,7 +556,7 @@ const WebStream = () => {
             </button>
           )}
           <button
-            onClick={restartStream}
+            onClick={resetStream}
             className="px-4 py-2 rounded-lg flex items-center bg-gray-600 hover:bg-gray-700 text-white text-sm md:text-base"
           >
             <RotateCcw className="h-4 w-4 mr-1 md:h-5 md:w-5 md:mr-2" />

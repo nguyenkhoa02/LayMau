@@ -14,7 +14,7 @@ const ImageList = ({ images, setImages }) => {
   };
 
   return (
-    <div className="container mx-auto px-4 grid grid-cols-5 items-center justify-center w-full ">
+    <div className="container mx-auto px-4 grid grid-cols-7 items-center justify-center w-full ">
       {images &&
         Object.keys(images).map((direction) => (
           <div key={direction} className="mb-6 ml-2">
@@ -27,8 +27,9 @@ const ImageList = ({ images, setImages }) => {
               {images[direction].map((image, index) => (
                 <div
                   key={`${direction}-${index}`}
-                  className=" w-[75px] h-[75px] relative"
+                  className=" w-[75px] h-[105px] relative"
                 >
+                  <p>{direction}</p>
                   <ImageCard
                     data={image}
                     onDelete={() => handleDelete(direction, index)}

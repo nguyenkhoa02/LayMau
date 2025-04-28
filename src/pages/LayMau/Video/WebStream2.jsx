@@ -28,10 +28,13 @@ const WebStream = ({ images, setImages, totalImages }) => {
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const containerRef = useRef(null);
+
   const [faceLandmarker, setFaceLandmarker] = useState(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState(null);
+
   const [imageEmbedder, setImageEmbedder] = useState(null);
+
   const [isMobileDevice, setIsMobileDevice] = useState(false);
   const [orientation, setOrientation] = useState("landscape");
   const progress = useRef(0);
@@ -429,10 +432,16 @@ const WebStream = ({ images, setImages, totalImages }) => {
               )
             ) {
               // Check if the user is wearing a mask
-              const isWearingMask = await detectMask(
-                cropFace(landmarks),
-                maskModel,
-              );
+              let isWearingMask;
+              await detectMask(cropFace(landmarks), maskModel)
+                .then((mask) => {
+                  isWearingMask = mask;
+                  console.log("Mask detected:", mask);
+                })
+                .catch((error) => {
+                  isWearingMask = false;
+                  console.error("Error detecting mask:", error);
+                });
               const { directionKey, faceDirection } =
                 determineFaceDirection(landmarks);
               const currentTargetDirection =
@@ -555,6 +564,7 @@ const WebStream = ({ images, setImages, totalImages }) => {
               ctx.fillText(`Face: ${faceDirection}`, 10, 30);
 
               ctx.fillStyle = isWearingMask ? "#00AA00" : "#FFAA00";
+              console.log("Mask log:", isWearingMask);
               ctx.fillText(isWearingMask ? "Mask: Yes" : "Mask: No", 10, 60);
 
               // Show target mode
