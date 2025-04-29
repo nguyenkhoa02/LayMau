@@ -3,12 +3,30 @@ import { ImageCard } from "../../../../Components";
 import PropTypes from "prop-types";
 
 const ImageList = ({ images, setImages }) => {
+  /**
+   * Deletes an image from the specific direction's image list and updates the state.
+   * If the direction's image list becomes empty after deletion, a global custom
+   * event `directionDeleted` is dispatched.
+   *
+   * @param {string} directionKey - The key representing the direction (e.g., "left", "right").
+   * @param {number} index - The index of the image to be removed from the direction's image list.
+   */
   const handleDelete = (directionKey, index) => {
     setImages((prev) => {
       const updatedImages = { ...prev };
       updatedImages[directionKey] = updatedImages[directionKey].filter(
         (_, i) => i !== index,
       );
+
+      if (updatedImages[directionKey].length === 0) {
+        // This will update the state in the parent component and be passed down to WebStream3
+        window.dispatchEvent(
+          new CustomEvent("directionDeleted", {
+            detail: { directionKey },
+          }),
+        );
+      }
+
       return updatedImages;
     });
   };

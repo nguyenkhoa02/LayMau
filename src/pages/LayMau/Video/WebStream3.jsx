@@ -3,11 +3,14 @@ import { AlertCircle, Camera, CameraOff, RotateCcw } from "lucide-react";
 import PropTypes from "prop-types";
 import {
   base64ToImageData,
+  checkCompletedProcess,
   checkCompletedUnmask,
   CheckImageDirection,
+  CompletedDirectionLength,
   cropFace,
   detectMask,
   determineFaceDirectionWithHorizontalAngle,
+  FirstUnCompletedDirection,
   getDeviceInfo,
   ImageDirection,
   isFaceInCircle,
@@ -16,6 +19,25 @@ import {
 import * as tf from "@tensorflow/tfjs";
 import { ImageEmbedder } from "@mediapipe/tasks-vision";
 
+/**
+ * The `vision` variable represents an asynchronously imported module for the MediaPipe Vision Tasks library.
+ * It provides advanced computer vision functionalities for building applications that perform real-time
+ * image and video analysis, such as object detection, face tracking, and more.
+ *
+ * The MediaPipe Vision Tasks library offers a set of prebuilt machine learning (ML) models and tools
+ * designed for various vision-based applications that can run efficiently on client devices.
+ *
+ * The imported module uses the ES module format and is retrieved from a specified CDN (Content Delivery Network).
+ *
+ * Note: Ensure network availability when importing this module dynamically from the CDN. This module
+ * relies on the @mediapipe/tasks-vision library, and the specific version number is defined within the
+ * module URL.
+ *
+ * Available through MediaPipe Tasks Vision library:
+ * - Image/ImageFrame processing
+ * - Preprocessing utilities for vision models
+ * - Specialized APIs for running ML workflows
+ */
 const vision = await import(
   "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/+esm"
 );
@@ -26,6 +48,16 @@ if (!FaceLandmarker || !FilesetResolver) {
   console.error("Failed to load Mediapipe vision components.");
 }
 
+/**
+ * Handles operations related to live webcam streaming and image processing.
+ * This includes starting/stopping the webcam, detecting images, processing face landmarks, saving captured images, and updating UI elements.
+ *
+ * @param {Object} config - Configuration object containing required parameters for the WebStream.
+ * @param {Object} config.images - An object that stores images categorized by direction keys.
+ * @param {Function} config.setImages - A state updater function to update image data.
+ * @param {number} config.totalImages - The total number of images required to complete the process.
+ * @return {void} This method does not return a value.
+ */
 const WebStream = ({ images, setImages, totalImages }) => {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -42,11 +74,11 @@ const WebStream = ({ images, setImages, totalImages }) => {
   const progress = useRef(0);
   const lastCaptureTime = useRef(0);
   const captureDelay = 500; // 0.5 seconds delay
-  const embsRef = useRef([]);
-  const imageRef = useRef(ImageDirection);
+  const embsRef = useRef(structuredClone(ImageDirection));
+  const imageRef = useRef(structuredClone(ImageDirection));
   const completedDirections = useRef(CheckImageDirection());
   const intructionRef = useRef("Position your face in the circle");
-  const limit = totalImages / 10;
+  const limit = 1;
   const [maskModel, setMaskModel] = useState(null);
 
   // Update canvas dimensions based on the container size
@@ -139,25 +171,33 @@ const WebStream = ({ images, setImages, totalImages }) => {
 
     // Reset completion status
     completedDirections.current = CheckImageDirection();
+    maskDetectionRef.current = false;
   };
 
+  // Save the image to the local storage
   const saveImage = async (faceImage, directionKey) => {
-    const isMasked =
-      (await detectMask(faceImage, maskModel)) && maskDetectionRef.current;
+    const isMasked = await detectMask(faceImage, maskModel);
+
+    // Check if the image should be saved
+    const checkMasked =
+      (isMasked && maskDetectionRef.current) ||
+      (!isMasked && !maskDetectionRef.current);
     directionKey = isMasked ? "masked_" + directionKey : directionKey;
 
-    console.log(directionKey);
+    if (checkMasked) {
+      if (!imageRef.current[directionKey]) {
+        imageRef.current[directionKey] = [];
+      }
 
-    if (!imageRef.current[directionKey]) {
-      imageRef.current[directionKey] = [];
-    }
-    const prevImg = imageRef.current[directionKey];
-    imageRef.current[directionKey] = [...prevImg, faceImage].slice(0, limit);
-    setImages((prev) => ({
-      ...prev,
-      [directionKey]: imageRef.current[directionKey],
-    }));
-    completedDirections.current[directionKey] = true;
+      const prevImg = imageRef.current[directionKey];
+      imageRef.current[directionKey] = [...prevImg, faceImage].slice(0, limit);
+      setImages((prev) => ({
+        ...prev,
+        [directionKey]: imageRef.current[directionKey],
+      }));
+      completedDirections.current[directionKey] = true;
+      return true;
+    } else return false;
   };
 
   // Predict using the webcam stream
@@ -228,7 +268,9 @@ const WebStream = ({ images, setImages, totalImages }) => {
       // Draw progress arc
       ctx.strokeStyle = "#2563eb";
       ctx.lineWidth = 5;
-      const progressPercentage = progress.current / (limit * totalImages);
+      const progressPercentage =
+        CompletedDirectionLength(completedDirections.current) /
+        (limit * totalImages);
       ctx.beginPath();
       ctx.arc(
         centerX,
@@ -266,11 +308,13 @@ const WebStream = ({ images, setImages, totalImages }) => {
               determineFaceDirectionWithHorizontalAngle(landmarks);
             const faceImage = cropFace(video, landmarks);
             const directionKey = initialDirectionKey;
-
+            const tempDirectionKey = maskDetectionRef.current
+              ? "masked_" + directionKey
+              : directionKey;
+            console.log("tempDirectionKey: ", tempDirectionKey);
             const currentTime = performance.now();
-
             if (
-              !completedDirections.current[directionKey] &&
+              !completedDirections.current[tempDirectionKey] &&
               currentTime - lastCaptureTime.current >= captureDelay
             ) {
               let imageData = await base64ToImageData(faceImage);
@@ -281,44 +325,79 @@ const WebStream = ({ images, setImages, totalImages }) => {
                 embResult.embeddings.length > 0
               ) {
                 const emb = embResult.embeddings[0];
+
+                console.log(embsRef.current);
+
                 if (emb && emb.floatEmbedding) {
-                  if (embsRef.current.length === 0) {
-                    embsRef.current = [emb];
-                    await saveImage(faceImage, directionKey);
-                    progress.current = progress.current + 1;
-                    lastCaptureTime.current = currentTime;
+                  if (
+                    Object.values(embsRef.current).every(
+                      (arr) => arr.length === 0,
+                    )
+                  ) {
+                    const saved = await saveImage(faceImage, directionKey);
+                    if (saved) {
+                      embsRef.current[directionKey] = emb;
+
+                      progress.current = progress.current + 1;
+                      lastCaptureTime.current = currentTime;
+                    }
                   } else {
-                    const similarities = embsRef.current.map((existingEmb) =>
-                      ImageEmbedder.cosineSimilarity(emb, existingEmb),
-                    );
+                    const similarities = Object.values(embsRef.current)
+                      .flat()
+                      .map((existingEmb) =>
+                        ImageEmbedder.cosineSimilarity(emb, existingEmb),
+                      );
                     const rate = Math.max(...similarities);
+                    console.log("rate: ", rate);
                     if (
-                      (rate <= 0.85 && embsRef.current.length === 1) ||
-                      (rate >= 0.5 && rate <= 0.85)
+                      (rate <= 0.85 &&
+                        Object.values(embsRef.current).length === 1) ||
+                      (rate >= 0.5 && rate <= 0.85) ||
+                      (rate >= 0.45 && maskDetectionRef.current)
                     ) {
-                      await saveImage(faceImage, directionKey);
+                      const saved = await saveImage(faceImage, directionKey);
                       lastCaptureTime.current = currentTime;
                       if (
                         imageRef.current[directionKey].length <= limit &&
                         !(
                           typeof totalImages === "number" &&
                           progress.current >= totalImages
-                        )
+                        ) &&
+                        saved
                       ) {
-                        embsRef.current = [...embsRef.current, emb];
+                        embsRef.current[directionKey] = emb;
                         progress.current = progress.current + 1;
-                      } else {
-                        return;
                       }
                     }
                   }
                 }
               }
             }
-            intructionRef.current = "Position your face in the zone";
-            ctx.fillStyle = "#FF0000";
+
+            const firstDirectionKey = FirstUnCompletedDirection(
+              completedDirections.current,
+            );
+
+            intructionRef.current = `Please face ${firstDirectionKey} in the circle`;
+            ctx.fillStyle = "#FFFFFF";
             ctx.font = "18px Arial";
             ctx.fillText(`Face: ${directionKey}`, 10, 30);
+
+            if (maskDetectionRef.current) {
+              // Draw indication that user should wear a mask
+              const fontSize = Math.max(
+                16,
+                Math.min(canvas.width, canvas.height) * 0.02,
+              );
+              ctx.fillStyle = "#FFFFFF";
+              ctx.textAlign = "center";
+              ctx.font = `${fontSize}px Arial`;
+              ctx.fillText(
+                "Please put on a mask",
+                centerX,
+                centerY - radius - fontSize * 1.25,
+              );
+            }
           } else {
             intructionRef.current =
               "Position your face in the circle and keep your head straight";
@@ -338,8 +417,15 @@ const WebStream = ({ images, setImages, totalImages }) => {
         centerX,
         centerY + radius + fontSize * 1.5,
       );
+
       if (checkCompletedUnmask(completedDirections.current)) {
+        console.log("All unmasked images collected, switching to mask mode");
         maskDetectionRef.current = true;
+      }
+
+      if (checkCompletedProcess(completedDirections.current)) {
+        stopStream();
+        return;
       }
     } catch (error) {
       console.error("Error during face detection:", error);
@@ -488,6 +574,39 @@ const WebStream = ({ images, setImages, totalImages }) => {
     }
   }, [isStreaming, faceLandmarker, predictWebcam, updateCanvasDimensions]);
 
+  // Add this to the WebStream3 component, in the useEffect section
+  useEffect(() => {
+    // Event listener for direction deleted event
+    const handleDirectionDeleted = (event) => {
+      const { directionKey } = event.detail;
+
+      // Mark the direction as incomplete
+      if (completedDirections.current[directionKey]) {
+        completedDirections.current[directionKey] = false;
+        imageRef.current[directionKey] = [];
+        embsRef.current[directionKey] = [];
+        maskDetectionRef.current = checkCompletedUnmask(
+          completedDirections.current,
+        );
+
+        // If the stream is stopped, restart it to continue capturing
+        if (!isStreaming && faceLandmarker && imageEmbedder && maskModel) {
+          startStream().then(() => {
+            console.log("Stream restarted after direction deletion");
+          });
+        }
+      }
+    };
+
+    // Add the event listener
+    window.addEventListener("directionDeleted", handleDirectionDeleted);
+
+    // Clean up event listener
+    return () => {
+      window.removeEventListener("directionDeleted", handleDirectionDeleted);
+    };
+  }, [isStreaming, faceLandmarker, imageEmbedder, maskModel]);
+
   // Start the webcam stream when the component mounts
   return (
     <div className="w-full max-w-3xl mx-auto p-2 md:p-4">
@@ -512,7 +631,7 @@ const WebStream = ({ images, setImages, totalImages }) => {
             playsInline
             muted
             className="w-full h-full object-cover "
-            // style={{ transform: "scaleX(-1)" }}
+            style={{ transform: "scaleX(-1)" }}
           />
           <canvas ref={canvasRef} className="absolute top-0 left-0" />
 
@@ -568,8 +687,21 @@ const WebStream = ({ images, setImages, totalImages }) => {
   );
 };
 
+/**
+ * PropTypes definition for the WebStream component.
+ *
+ * This defines the expected types and requirements for the props
+ * that the WebStream component can accept to ensure type safety
+ * and validation during development.
+ *
+ * Each property listed within the `propTypes` object must match
+ * its defined type when passed to the component.
+ *
+ * Developers can refer to these definitions to understand
+ * the structure and constraints of the props for this component.
+ */
 WebStream.propTypes = {
-  images: PropTypes.array,
+  images: PropTypes.objectOf(PropTypes.arrayOf(PropTypes.string)),
   setImages: PropTypes.func.isRequired,
   totalImages: PropTypes.number,
 };

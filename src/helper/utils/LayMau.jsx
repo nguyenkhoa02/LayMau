@@ -2,9 +2,15 @@
 import * as tf from "@tensorflow/tfjs";
 
 /**
- * Converts a base64 image string to ImageData
- * @param {string} base64Image - The base64 encoded image string
- * @returns {Promise<ImageData>} The image data object
+ * Converts a Base64-encoded image string into an ImageData object.
+ *
+ * This function creates an HTMLImageElement, draws the image onto a canvas,
+ * and retrieves the ImageData from the canvas. It resolves with the ImageData
+ * if successful and rejects with an error if the image fails to load.
+ *
+ * @param {string} base64Image - A Base64-encoded string representing the image.
+ * @returns {Promise<ImageData>} A promise that resolves with the ImageData object containing the pixel data of the image.
+ * @throws {Error} If the image fails to load or cannot be processed.
  */
 export const base64ToImageData = async (base64Image) => {
   return new Promise((resolve, reject) => {
@@ -28,10 +34,12 @@ export const base64ToImageData = async (base64Image) => {
 };
 
 /**
- * Crops a face from video using facial landmarks
- * @param {HTMLVideoElement} videoElement - The video element
- * @param {Array} landmarks - The facial landmarks
- * @returns {string|null} - Base64 encoded cropped image or null
+ * Extracts and crops a face area from a video element based on facial landmarks,
+ * then resizes the cropped image to a standard dimension and returns it as a Base64 encoded string.
+ *
+ * @param {HTMLVideoElement} videoElement - The source video element containing the face to be cropped.
+ * @param {Array<{x: number, y: number}>} landmarks - Array of facial landmark points, each object containing `x` and `y` values normalized between 0 and 1.
+ * @returns {string|null} A Base64 encoded PNG string of the cropped and resized face, or `null` if the video element is not provided.
  */
 export const cropFace = (videoElement, landmarks) => {
   if (!videoElement) return null;
@@ -92,10 +100,13 @@ export const cropFace = (videoElement, landmarks) => {
 };
 
 /**
- * Detects if person is wearing a mask using TensorFlow model
- * @param {string} base64Image - The base64 encoded image
- * @param {tf.LayersModel} maskModel - The loaded TensorFlow mask detection model
- * @returns {Promise<boolean>} - True if mask detected, false otherwise
+ * Detects whether a person in a given base64 image is wearing a mask using a pre-trained machine learning model.
+ *
+ * @param {string} base64Image - A base64 string representation of the image to be analyzed.
+ * @param {object} maskModel - A pre-trained TensorFlow.js machine learning model used for mask detection.
+ * @returns {Promise<boolean>} A promise that resolves to a boolean indicating whether a mask is detected.
+ *                              Resolves to `true` if a mask is detected, and `false` if not.
+ * @throws {Error} Throws an error if the maskModel is undefined, the image fails to load, or if an invalid prediction result occurs.
  */
 export const detectMask = async (base64Image, maskModel) => {
   return new Promise((resolve, reject) => {
@@ -146,6 +157,20 @@ export const detectMask = async (base64Image, maskModel) => {
   });
 };
 
+/**
+ * An asynchronous function that detects the presence of a mask in an image
+ * using a provided machine learning model.
+ *
+ * @param {string} base64Image - A base64-encoded string representation of the image
+ * to be analyzed.
+ * @param {tf.LayersModel} maskModel - A TensorFlow.js machine learning model
+ * trained to detect masks.
+ * @returns {Promise<boolean>} Resolves to `true` if a mask is detected in the image,
+ * otherwise `false`.
+ * @throws {Error} If the `maskModel` is not defined or not initialized.
+ * @throws {Error} If the image fails to load or if an error occurs during the
+ * prediction process.
+ */
 export const detectMask2 = async (base64Image, maskModel) => {
   if (!maskModel) {
     console.error("maskModel is undefined");
@@ -186,9 +211,39 @@ export const detectMask2 = async (base64Image, maskModel) => {
   }
 };
 /**
- * Determines face direction based on facial landmarks
- * @param {Object} landmarks - The facial landmarks
- * @returns {Object} - Direction object with direction key and name
+ * Determines the direction of the face based on given facial landmarks.
+ *
+ * This function analyzes the positions of specific facial points (nose tip, left eye, right eye,
+ * chin, and forehead) from the `landmarks` argument to determine the horizontal and vertical
+ * orientation of the face. It calculates the thresholds for movement detection and assigns
+ * semantic values like "Up," "Down," "Left," "Right," or "Front" to describe the face's position.
+ *
+ * @param {Array} landmarks - An array of 2D or 3D points representing the facial landmarks.
+ * Each point should have `x` and `y` properties, and optionally `z` if 3D points are used.
+ * The function assumes specific landmark indices where:
+ *   - `landmarks[1]`: Nose tip
+ *   - `landmarks[33]`: Left eye
+ *   - `landmarks[263]`: Right eye
+ *   - `landmarks[152]`: Chin
+ *   - `landmarks[10]`: Forehead
+ * The arrangement and indices must adhere to commonly used facial landmarking systems.
+ *
+ * @returns {Object} An object containing:
+ *   - `directionKey` {string}: A key representing the primary face direction. Possible values are:
+ *     - "front": The face is directly facing forward.
+ *     - "left": The face is tilted to the viewer's left.
+ *     - "right": The face is tilted to the viewer's right.
+ *     - "up": The face is tilted upward.
+ *     - "down": The face is tilted downward.
+ *   - `faceDirection` {string}: A more descriptive representation of the face's direction,
+ *     combining both horizontal and vertical orientations when applicable. Examples:
+ *     - "Up"
+ *     - "Right"
+ *     - "Up Left"
+ *     - "Front"
+ *
+ * The function uses distance thresholds to determine whether movements from the center are
+ * significant enough to classify the face as tilted or repositioned in any direction.
  */
 export const determineFaceDirection = (landmarks) => {
   const noseTip = landmarks[1];
@@ -206,7 +261,7 @@ export const determineFaceDirection = (landmarks) => {
   );
 
   // Use similar threshold sensitivities for horizontal and vertical detection
-  const horizontalThreshold = eyeDistance * 0.15;
+  const horizontalThreshold = eyeDistance * 0.1;
   const verticalThreshold = faceHeight * 0.01;
 
   const noseCenterX = (leftEye.x + rightEye.x) / 2;
@@ -251,11 +306,12 @@ export const determineFaceDirection = (landmarks) => {
 };
 
 /**
- * Determines if face is at a specific vertical angle
- * @param {Array} landmarks - The facial landmarks
- * @param {number} targetAngle - The target angle in degrees to detect (e.g., 45, 70)
- * @param {number} tolerance - Acceptable deviation from target angle in degrees
- * @returns {boolean} - True if face is at the specified angle within tolerance
+ * Determines whether a face's vertical angle matches a given target angle within a specified tolerance.
+ *
+ * @param {Array} landmarks - The facial landmark points used to calculate angles, typically provided as an array of objects with `x` and `y` coordinates.
+ * @param {number} targetAngle - The target vertical angle in degrees to check against.
+ * @param {number} [tolerance=5] - The acceptable deviation from the target angle, given as degrees. Default value is 5.
+ * @returns {boolean} - Returns true if the face's vertical angle is within the specified tolerance of the target angle, otherwise false.
  */
 export const isFaceAtVerticalAngle = (
   landmarks,
@@ -300,11 +356,23 @@ export const isFaceAtVerticalAngle = (
 };
 
 /**
- * Determines if face is at a specific horizontal angle
- * @param {Array} landmarks - The facial landmarks
- * @param {number} targetAngle - The target angle in degrees to detect (e.g., 45, 70)
- * @param {number} tolerance - Acceptable deviation from target angle in degrees
- * @returns {boolean} - True if face is at the specified angle within tolerance
+ * Determines if a face is oriented at a specified horizontal angle within a given tolerance.
+ *
+ * This function takes facial landmarks to calculate the horizontal angle of the face.
+ * It evaluates whether the current angle deviates from the target angle within a specified tolerance.
+ *
+ * @param {Array<Object>} landmarks - An array representing facial landmarks, where each landmark is
+ * an object containing `x` and `y` coordinates. Specific indices used are:
+ *   - Index 1: Tip of the nose
+ *   - Index 33: Left eye
+ *   - Index 263: Right eye
+ * @param {number} targetAngle - The horizontal angle (in degrees) to verify against.
+ * A positive angle typically indicates the face is turned to the right, while a
+ * negative angle indicates leftward rotation.
+ * @param {number} [tolerance=5] - The allowable variation (in degrees) from the target angle.
+ * Defaults to 5 degrees if not provided.
+ * @returns {boolean} - Returns `true` if the calculated horizontal angle is within the
+ * specified tolerance of the target angle; otherwise, returns `false`.
  */
 export const isFaceAtHorizontalAngle = (
   landmarks,
@@ -341,9 +409,19 @@ export const isFaceAtHorizontalAngle = (
 };
 
 /**
- * Enhanced face direction detection with specific horizontal angle detection
- * @param {Array} landmarks - The facial landmarks
- * @returns {Object} - Enhanced direction information with horizontal angle data
+ * Determines the face direction based on horizontal and vertical angles calculated
+ * from facial landmarks. This includes evaluating the horizontal and vertical
+ * orientation of the face to produce a string representation of direction and an
+ * associated key.
+ *
+ * @param {Array<Object>} landmarks - Array of facial landmarks obtained from pose or face-detection models.
+ * Each landmark object should include at least `x` and `y` properties representing the normalized 2D coordinates.
+ *
+ * @returns {Object} An object containing the following properties:
+ * - `directionKey` {string} - A concise key describing the face direction, such as `front`, `left`, `right`, `up`, `down`, `halfLeft`, or `halfRight`.
+ * - `faceDirection` {string} - A human-readable string describing the face direction, combining horizontal and vertical positioning.
+ * - `horizontalAngle` {number} - The horizontal angle of the face in degrees, estimated based on the nose's position relative to the eyes.
+ * - `absAngle` {number} - The absolute value of the horizontal angle in degrees.
  */
 export const determineFaceDirectionWithHorizontalAngle = (landmarks) => {
   const noseTip = landmarks[1];
@@ -382,7 +460,7 @@ export const determineFaceDirectionWithHorizontalAngle = (landmarks) => {
     horizontalDirection = isLookingRight ? "Half Right" : "Half Left";
   } else if (absAngle > 10) {
     // Use the basic threshold approach as fallback for smaller angles
-    const horizontalThreshold = eyeDistance * 0.15;
+    const horizontalThreshold = eyeDistance * 0.075;
     if (noseTip.x < noseMidpointX - horizontalThreshold) {
       horizontalDirection = "Right";
     } else if (noseTip.x > noseMidpointX + horizontalThreshold) {
@@ -429,14 +507,15 @@ export const determineFaceDirectionWithHorizontalAngle = (landmarks) => {
 };
 
 /**
- * Checks if head is tilted based on eye positions
- * @param {Array} landmarks - The facial landmarks
- * @param {number} width - Canvas width
- * @param {number} height - Canvas height
- * @param {number} tiltThreshold - Degree threshold for tilt detection
- * @returns {boolean} - True if head is tilted beyond threshold
+ * Determines if the head is tilted based on facial landmarks.
+ *
+ * @param {Object[]} landmarks - Array of facial landmark objects, where each object contains normalized positions (x and y) of points.
+ * @param {number} width - The width of the frame or canvas, used to scale normalized landmark coordinates.
+ * @param {number} height - The height of the frame or canvas, used to scale normalized landmark coordinates.
+ * @param {number} [tiltThreshold=20] - The angle in degrees beyond which the head is considered tilted. Default is 20 degrees.
+ * @returns {boolean} - Returns `true` if the calculated head tilt angle exceeds the provided tilt threshold, otherwise `false`.
  */
-export const isHeadTilted = (landmarks, width, height, tiltThreshold = 20) => {
+export const isHeadTilted = (landmarks, width, height, tiltThreshold = 30) => {
   const leftEye = landmarks[33];
   const rightEye = landmarks[263];
 
@@ -458,12 +537,19 @@ export const isHeadTilted = (landmarks, width, height, tiltThreshold = 20) => {
 };
 
 /**
- * Checks if face is within circle boundary
- * @param {Array} facePoints - Array of face point coordinates
- * @param {number} centerX - Circle center X
- * @param {number} centerY - Circle center Y
- * @param {number} radius - Circle radius
- * @returns {boolean} - True if face is in circle
+ * Checks whether all points of a face are within a given circle.
+ *
+ * This function determines if every point in the `facePoints` array lies
+ * within or on the boundary of a circle defined by its center coordinates
+ * (`centerX`, `centerY`) and radius.
+ *
+ * @param {Array<{x: number, y: number}>} facePoints - An array of objects representing
+ *        the x and y coordinates of points that make up the face.
+ * @param {number} centerX - The x-coordinate of the circle's center.
+ * @param {number} centerY - The y-coordinate of the circle's center.
+ * @param {number} radius - The radius of the circle.
+ * @returns {boolean} Returns `true` if all points of the face are within
+ *          or on the boundary of the circle; otherwise, returns `false`.
  */
 export const isFaceInCircle = (facePoints, centerX, centerY, radius) => {
   return facePoints.every(
@@ -475,10 +561,13 @@ export const isFaceInCircle = (facePoints, centerX, centerY, radius) => {
 };
 
 /**
- * Updates canvas dimensions to match container
- * @param {HTMLVideoElement} videoElement - The video element
- * @param {HTMLCanvasElement} canvasElement - The canvas element
- * @param {HTMLDivElement} containerElement - The container element
+ * Updates the dimensions of a canvas element to match those of a container element,
+ * and adjusts its display size and internal resolution to align with the dimensions
+ * of a video element.
+ *
+ * @param {HTMLVideoElement} videoElement - The video element whose dimensions will be used as a reference.
+ * @param {HTMLCanvasElement} canvasElement - The canvas element to be resized and updated.
+ * @param {HTMLElement} containerElement - The container element whose dimensions determine the display size of the canvas.
  */
 export const updateCanvasDimensions = (
   videoElement,
@@ -504,8 +593,13 @@ export const updateCanvasDimensions = (
 };
 
 /**
- * Checks device type and orientation
- * @returns {Object} - Object with isMobile and orientation properties
+ * Retrieves device information based on the user agent and screen dimensions.
+ *
+ * @function
+ *
+ * @returns {Object} An object containing information about the device:
+ * - `isMobile` {boolean}: Indicates whether the device is identified as a mobile device.
+ * - `orientation` {string}: The current screen orientation, either "portrait" or "landscape".
  */
 export const getDeviceInfo = () => {
   const isMobile =
@@ -522,105 +616,27 @@ export const getDeviceInfo = () => {
   };
 };
 
-/**
- * Draws the webcam interface with face guidance and progress
- * @param {CanvasRenderingContext2D} ctx - Canvas context
- * @param {Object} config - Configuration object
- */
-export const drawWebcamInterface = (
-  ctx,
-  {
-    width,
-    height,
-    centerX,
-    centerY,
-    radius,
-    progress,
-    totalProgress,
-    currentDirection,
-    currentCount,
-    limit,
-    completedDirections,
-    totalDirections,
-    faceDirection,
-    isMasked,
-    instructionText,
-  },
-) => {
-  // Clear the canvas
-  ctx.clearRect(0, 0, width, height);
-
-  // Draw semi-transparent overlay
-  ctx.fillStyle = "rgba(128, 128, 128, 0.6)";
-  ctx.fillRect(0, 0, width, height);
-
-  // Create transparent circle
-  ctx.globalCompositeOperation = "destination-out";
-  ctx.beginPath();
-  ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.globalCompositeOperation = "source-over";
-
-  // Draw circle border
-  ctx.strokeStyle = "#bfdbfe";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-  ctx.stroke();
-
-  // Draw progress arc
-  ctx.strokeStyle = "#2563eb";
-  ctx.lineWidth = 5;
-  const progressPercentage = progress / totalProgress;
-  ctx.beginPath();
-  ctx.arc(
-    centerX,
-    centerY,
-    radius,
-    -Math.PI / 2, // Start at -90 degrees (12 o'clock)
-    Math.PI * 2 * progressPercentage - Math.PI / 2, // End angle based on progress
-  );
-  ctx.stroke();
-
-  // Display face direction if available
-  if (faceDirection) {
-    ctx.fillStyle = "#FF0000";
-    ctx.font = "18px Arial";
-    ctx.fillText(`Face: ${faceDirection}`, 10, 30);
-
-    // Display mask status if available
-    if (typeof isMasked === "boolean") {
-      ctx.fillStyle = isMasked ? "#00AA00" : "#FFAA00";
-      ctx.fillText(isMasked ? "Mask: Yes" : "Mask: No", 10, 60);
-    }
-  }
-
-  // Show target direction and progress
-  if (currentDirection) {
-    ctx.fillStyle = "#FFFFFF";
-    ctx.fillText(`Target: ${currentDirection}`, 10, 90);
-    ctx.fillText(`Progress: ${currentCount}/${limit}`, 10, 120);
-  }
-
-  // Display instructions
-  const fontSize = Math.max(16, Math.min(width, height) * 0.02);
-  ctx.font = `${fontSize}px Arial`;
-  ctx.fillStyle = "#FFFFFF";
-  ctx.textAlign = "center";
-  ctx.fillText(instructionText, centerX, centerY + radius + fontSize * 1.5);
-
-  // Show overall completion status
-  ctx.fillStyle = "#4CAF50";
-  ctx.font = `bold ${fontSize}px Arial`;
-  ctx.textAlign = "center";
-  ctx.fillText(
-    `Completed: ${completedDirections}/${totalDirections} directions`,
-    centerX,
-    centerY - radius - fontSize,
-  );
-};
-
 // Sample image object
+/**
+ * An object representing different possible directions for an image. Each direction is associated with an empty array,
+ * which can later hold specific data or objects related to that direction.
+ *
+ * Properties:
+ * - `front`: Represents the front direction.
+ * - `left`: Represents the left direction.
+ * - `halfLeft`: Represents the half-left direction (diagonal left/front view).
+ * - `right`: Represents the right direction.
+ * - `halfRight`: Represents the half-right direction (diagonal right/front view).
+ * - `down`: Represents the downward direction.
+ * - `up`: Represents the upward direction.
+ * - `masked_front`: Represents the masked front direction.
+ * - `masked_left`: Represents the masked left direction.
+ * - `masked_halfLeft`: Represents the masked half-left direction.
+ * - `masked_right`: Represents the masked right direction.
+ * - `masked_halfRight`: Represents the masked half-right direction.
+ * - `masked_down`: Represents the masked downward direction.
+ * - `masked_up`: Represents the masked upward direction.
+ */
 export const ImageDirection = {
   front: [],
   left: [],
@@ -638,9 +654,33 @@ export const ImageDirection = {
   masked_up: [],
 };
 
+export const ImageDirectionEmb = () =>
+  Object.fromEntries(Object.keys(ImageDirection).map((key) => [key, null]));
+
+/**
+ * Generates an object representing the state of all image directions, initializing each direction to `false`.
+ *
+ * This function iterates over all keys in the `ImageDirection` object and sets their values to `false` in the resulting object.
+ * It is commonly used to initialize or reset flags related to image direction states.
+ *
+ * @function CheckImageDirection
+ * @returns {Object} An object where each key corresponds to a key in the `ImageDirection` object, and the value is `false`.
+ */
 export const CheckImageDirection = () =>
   Object.fromEntries(Object.keys(ImageDirection).map((key) => [key, false]));
 
+/**
+ * Evaluates whether all specified directions in the `completedDirections` object
+ * are marked as completed by checking if their values are `true`.
+ *
+ * The function checks a predefined list of direction keys:
+ * "front", "left", "halfLeft", "right", "halfRight", "down", and "up".
+ *
+ * @param {Object} completedDirections - An object where keys represent direction names
+ * and values denote whether the corresponding direction has been completed (true) or not.
+ * @returns {boolean} - Returns `true` if all the predefined direction keys are set to `true`
+ * in the `completedDirections` object; otherwise, returns `false`.
+ */
 export const checkCompletedUnmask = (completedDirections) => {
   const unmaskKeys = [
     "front",
@@ -652,4 +692,69 @@ export const checkCompletedUnmask = (completedDirections) => {
     "up",
   ];
   return unmaskKeys.every((key) => completedDirections[key] === true);
+};
+
+/**
+ * Determines if all processes in a set of directions have been completed.
+ *
+ * @param {Object} completedDirections - An object where the keys represent directions or tasks,
+ * and the values are boolean flags indicating whether the corresponding process is completed.
+ * @returns {boolean} Returns true if all processes are completed (i.e., all values in the object are true); otherwise, returns false.
+ */
+export const checkCompletedProcess = (completedDirections) => {
+  for (const direction of Object.keys(completedDirections)) {
+    if (!completedDirections[direction]) {
+      return false;
+    }
+  }
+  return true;
+};
+
+/**
+ * Determines the first uncompleted direction from a given object of directions.
+ *
+ * This function iterates through the provided `completedDirections` object, where
+ * each key represents a direction (e.g., "north", "south") and the corresponding
+ * value is a boolean indicating whether the direction is completed (true) or not (false).
+ * The function returns the first key (direction) with a value of `false`. If all
+ * directions are completed, or if the input is invalid, the function returns `null`.
+ *
+ * @param {Object} completedDirections - An object where keys are direction names and values are booleans.
+ * @returns {string|null} The first uncompleted direction as a string, or null if all directions are completed or input is invalid.
+ */
+export const FirstUnCompletedDirection = (completedDirections) => {
+  if (!completedDirections || typeof completedDirections !== "object") {
+    return null;
+  }
+
+  // Iterate through all directions in the object
+  for (const direction in completedDirections) {
+    // If a direction is found that is not completed (false), return it
+    if (!completedDirections[direction]) {
+      return direction;
+    }
+  }
+  return null;
+};
+
+/**
+ * Calculates the total count of completed directions.
+ *
+ * This function iterates through the provided directions object
+ * and counts how many directions have been marked as completed
+ * (i.e., their value evaluates to a truthy value).
+ *
+ * @param {Object} completedDirections - An object where keys represent directions
+ *        and the corresponding values indicate whether the direction is completed.
+ *        A truthy value signifies completion, whereas falsy indicates otherwise.
+ * @returns {number} The count of completed directions.
+ */
+export const CompletedDirectionLength = (completedDirections) => {
+  let count = 0;
+  for (const direction in completedDirections) {
+    if (completedDirections[direction]) {
+      count++;
+    }
+  }
+  return count;
 };
