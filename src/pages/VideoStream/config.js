@@ -4,30 +4,26 @@ import { useRef, useState } from "react";
 import { Menu, X, Zap, Video } from "lucide-react";
 import CamStream from "../VideoStream/components/CamStream";
 import mqtt from "mqtt";
-
 export default function VideoStream() {
+  // const [connected, setConnected] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [connected, setConnected] = useState(false);
   const [cameras, setCameras] = useState([
     {
       id: "cam1",
       name: "Main Entrance",
       location: "Front Door",
-      VideoTopic: "cam/door_in",
-      PersonTopic: "show/door_in",
+      topic: "cam/door_in",
       isActive: true,
     },
     {
       id: "cam2",
       name: "Back Door",
       location: "Rear Entrance",
-      VideoTopic: "cam/back_door",
-      PersonTopic: "show/back_door",
+      topic: "cam/back_door",
       isActive: false,
     },
   ]);
   const [activeCameraTopic, setActiveCameraTopic] = useState("cam/door_in");
-  const [activePersonTopic, setActivePersonTopic] = useState("show/door_in");
 
   const clientRef = useRef(null);
 
@@ -43,8 +39,7 @@ export default function VideoStream() {
       (camera) => camera.id === cameraId,
     );
     if (selectedCamera) {
-      setActiveCameraTopic(selectedCamera.VideoTopic);
-      setActivePersonTopic(selectedCamera.PersonTopic);
+      setActiveCameraTopic(selectedCamera.topic);
     }
 
     if (window.innerWidth < 768) {
@@ -53,57 +48,17 @@ export default function VideoStream() {
   };
 
   useEffect(() => {
-    // Create and initialize MQTT client
-    try {
-      const mqttClient = mqtt.connect("ws://localhost:8083/mqtt", {
-        username: "face",
-        password: "face",
-        reconnectPeriod: 5000,
-        connectTimeout: 30 * 1000,
-        clean: true,
-        clientId: "web-client-" + Math.random().toString(16).substr(2, 8),
-        // Add these options to improve WebSocket connection reliability
-        rejectUnauthorized: false,
-        keepalive: 60,
-        protocol: "ws",
-      });
+    clientRef.current = mqtt.connect("ws://localhost:8083/mqtt", {
+      username: "face",
+      password: "face",
+      reconnectPeriod: 1000,
+      connectTimeout: 30 * 1000,
+      clean: true,
+      clientId: "web-client-" + Math.random().toString(16).substr(2, 8),
+    });
+  });
 
-      // Setup connection status handlers
-      mqttClient.on("connect", () => {
-        console.log("MQTT client connected successfully");
-        setConnected(true);
-      });
-
-      mqttClient.on("error", (error) => {
-        console.error("MQTT connection error:", error);
-        setConnected(false);
-      });
-
-      mqttClient.on("close", () => {
-        console.log("MQTT connection closed");
-        setConnected(false);
-      });
-
-      mqttClient.on("reconnect", () => {
-        console.log("MQTT client reconnecting...");
-      });
-
-      // Store the client reference
-      clientRef.current = mqttClient;
-    } catch (error) {
-      console.error("Error creating MQTT client:", error);
-      setConnected(false);
-    }
-
-    // Clean up MQTT connection when component unmounts
-    return () => {
-      if (clientRef.current) {
-        console.log("Cleaning up MQTT connection in VideoStream");
-        clientRef.current.end(true);
-        clientRef.current = null;
-      }
-    };
-  }, []);
+  // const activeCamera = cameras.find((cam) => cam.isActive)
 
   return (
     <div className="flex flex-col min-h-screen bg-white text-gray-800">
@@ -121,17 +76,11 @@ export default function VideoStream() {
           </button>
           <h1 className="text-lg font-semibold flex items-center">
             <Zap className="mr-2 h-5 w-5 text-blue-500" />
-            Nhận diện gương mặt
+            Real-time Person Detection
           </h1>
           <div className="ml-auto flex items-center gap-2">
-            <span
-              className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${
-                connected
-                  ? "bg-blue-50 text-blue-700 ring-blue-700/10"
-                  : "bg-red-50 text-red-700 ring-red-700/10"
-              }`}
-            >
-              {connected ? "Connected" : "Disconnected"}
+            <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-blue-700/10 ring-inset">
+              Connected
             </span>
           </div>
         </div>
@@ -167,9 +116,7 @@ export default function VideoStream() {
                   <div className="text-xs text-gray-500">{camera.location}</div>
                 </div>
                 {camera.isActive && (
-                  <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
-                    Active
-                  </span>
+                  <spans className="bg-blue-500">Active</spans>
                 )}
               </button>
             ))}
@@ -179,7 +126,7 @@ export default function VideoStream() {
         <CamStream
           client={clientRef.current}
           videoSubscribe={activeCameraTopic}
-          personSubscribe={activePersonTopic}
+          personSubscribe="show/door_in"
         />
       </div>
 
